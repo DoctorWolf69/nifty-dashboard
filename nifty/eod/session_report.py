@@ -204,15 +204,150 @@ def _pnl_class(value: Any) -> str:
     return "info"
 
 
-def build_trade_list_html(trade_date: date) -> str:
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """Parse a journal timestamp ('YYYY-MM-DD HH:MM:SS[...]') to a naive datetime."""
+    text = str(value or "").strip()
+    if len(text) < 19:
+        return None
+    try:
+        return datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def _hold_minutes(row: Dict[str, Any]) -> Optional[float]:
+    start = _parse_ts(row.get("generated_at"))
+    end = _parse_ts(row.get("exit_time"))
+    if not start or not end:
+        return None
+    delta = (end - start).total_seconds() / 60.0
+    return round(delta, 1) if delta >= 0 else None
+
+
+def build_performance_summary(trade_date: date) -> Dict[str, Any]:
+    """TradingView-style performance metrics over the day's paper trades.
+
+    Pure read over the journal (reuses _collect_all_trades). Powers both the static
+    report HTML and the live /report route — no engine state involved.
+    """
     label = trade_date.isoformat()
+    all_trades, net_total = _collect_all_trades(label)
+    closed = [row for row in all_trades if row.get("exit_time")]
+    open_trades = [row for row in all_trades if not row.get("exit_time")]
+    closed.sort(key=lambda row: str(row.get("exit_time") or ""))
+
+    def _net(row: Dict[str, Any]) -> float:
+        try:
+            return float(row.get("pnl_net_rupees") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    wins = [row for row in closed if _net(row) > 0]
+    losses = [row for row in closed if _net(row) < 0]
+    gross_profit = sum(_net(row) for row in wins)
+    gross_loss = abs(sum(_net(row) for row in losses))
+    holds = [m for m in (_hold_minutes(row) for row in closed) if m is not None]
+    holds_sorted = sorted(holds)
+
+    # Equity curve + max drawdown over closed trades in exit order.
+    equity = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    curve: List[Dict[str, Any]] = [{"label": "Start", "equity": 0.0, "id": None}]
+    for row in closed:
+        equity += _net(row)
+        peak = max(peak, equity)
+        max_dd = max(max_dd, peak - equity)
+        curve.append(
+            {
+                "label": str(row.get("exit_time") or "")[11:19] or f"#{row.get('id')}",
+                "equity": round(equity, 2),
+                "id": row.get("id"),
+            }
+        )
+
+    closed_n = len(closed)
+    win_rate = round(len(wins) / closed_n * 100, 1) if closed_n else None
+    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (
+        None if gross_profit == 0 else float("inf")
+    )
+    median_hold = (
+        holds_sorted[len(holds_sorted) // 2]
+        if len(holds_sorted) % 2
+        else (holds_sorted[len(holds_sorted) // 2 - 1] + holds_sorted[len(holds_sorted) // 2]) / 2
+    ) if holds_sorted else None
+
+    return {
+        "trade_date": label,
+        "trades": all_trades,
+        "closed_trades": closed,
+        "open_trades": open_trades,
+        "total_trades": len(all_trades),
+        "closed_count": closed_n,
+        "open_count": len(open_trades),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": win_rate,
+        "net_total": round(net_total, 2),
+        "gross_profit": round(gross_profit, 2),
+        "gross_loss": round(gross_loss, 2),
+        "profit_factor": profit_factor,
+        "avg_win": round(gross_profit / len(wins), 2) if wins else None,
+        "avg_loss": round(-gross_loss / len(losses), 2) if losses else None,
+        "avg_trade": round(net_total / closed_n, 2) if closed_n else None,
+        "avg_hold_min": round(sum(holds) / len(holds), 1) if holds else None,
+        "median_hold_min": median_hold,
+        "max_drawdown": round(max_dd, 2),
+        "equity_curve": curve,
+    }
+
+
+def _nse_filing_block(label: str) -> str:
+    """FII/DII + India VIX + next-week max-pain card, only if the filing exists."""
+    filing = _load_json(JOURNAL_DIR / f"nse_eod_filing_{label}.json")
+    if not filing or filing.get("error"):
+        return ""
+    fii = filing.get("fii_dii") or {}
+    vix = filing.get("india_vix") or {}
+    official = filing.get("nifty_official") or {}
+    next_map = (filing.get("nifty_oi_maps") or {}).get("next_weekly") or {}
+    fii_net = fii.get("fii_net_crores")
+    dii_net = fii.get("dii_net_crores")
+    return f"""
+    <h2 class="section">NSE Official EOD</h2>
+    <div class="stats stats-3">
+      <div class="stat"><div class="label">FII net (Cr)</div><div class="value {_pnl_class(fii_net)}">{_fmt(fii_net, 0)}</div></div>
+      <div class="stat"><div class="label">DII net (Cr)</div><div class="value {_pnl_class(dii_net)}">{_fmt(dii_net, 0)}</div></div>
+      <div class="stat"><div class="label">India VIX</div><div class="value">{_fmt(vix.get('last'))}</div></div>
+      <div class="stat"><div class="label">NIFTY close</div><div class="value">{_fmt(official.get('close'))}</div></div>
+      <div class="stat"><div class="label">Next max pain</div><div class="value">{_fmt(next_map.get('max_pain'), 0)}</div></div>
+      <div class="stat"><div class="label">PCR (OI)</div><div class="value">{_fmt(next_map.get('pcr_oi'))}</div></div>
+    </div>"""
+
+
+def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = None) -> str:
+    """Full TradingView-style performance report (cards + equity curve + trade table).
+
+    Shared by the static file writer and the live /report route. Pass a precomputed
+    `summary` (from build_performance_summary) or it will be computed here.
+    """
+    label = trade_date.isoformat()
+    if summary is None:
+        summary = build_performance_summary(trade_date)
     brief = _load_json(JOURNAL_DIR / f"desk_brief_{label}.json")
     levels = _load_json(JOURNAL_DIR / f"daily_levels_{label}.json")
     session_close = levels.get("session_close") or {}
-    all_trades, closed_net = _collect_all_trades(label)
-    wins = sum(1 for row in all_trades if float(row.get("pnl_net_rupees") or 0) > 0)
-    losses = sum(1 for row in all_trades if float(row.get("pnl_net_rupees") or 0) < 0)
-    net_class = _pnl_class(closed_net)
+
+    all_trades = summary["trades"]
+    net_total = summary["net_total"]
+    net_class = _pnl_class(net_total)
+
+    def _fmt_opt(value: Any, digits: int = 2, suffix: str = "") -> str:
+        if value is None:
+            return "—"
+        if value == float("inf"):
+            return "∞"
+        return f"{_fmt(value, digits)}{suffix}"
 
     rows_html: List[str] = []
     for idx, row in enumerate(all_trades, start=1):
@@ -222,12 +357,14 @@ def build_trade_list_html(trade_date: date) -> str:
         side_class = "good" if side == "BUY_CE" else "bad" if side == "BUY_PE" else "info"
         tin = str(row.get("generated_at") or "")[:19]
         tout = str(row.get("exit_time") or "OPEN")[:19]
+        hold = _hold_minutes(row)
         rows_html.append(
             f"""<tr>
   <td>{idx}</td>
   <td>{row.get('id')}</td>
   <td>{tin[-8:] if len(tin) >= 8 else tin}</td>
   <td>{tout[-8:] if len(tout) >= 8 and tout != 'OPEN' else tout}</td>
+  <td>{_fmt(hold, 0) if hold is not None else '—'}</td>
   <td class="{side_class}">{side}</td>
   <td>{row.get('strike')}</td>
   <td class="mono">{row.get('entry_contract')}</td>
@@ -235,29 +372,35 @@ def build_trade_list_html(trade_date: date) -> str:
   <td>{_fmt(row.get('exit_price') or row.get('current_price'))}</td>
   <td class="{_pnl_class(pnl_pct)}">{_fmt(pnl_pct)}%</td>
   <td class="{_pnl_class(net)}">{_fmt(net, 0)}</td>
-  <td class="muted">{row.get('exit_reason') or '-'}</td>
+  <td class="muted">{row.get('exit_reason') or ('OPEN' if not row.get('exit_time') else '-')}</td>
 </tr>"""
         )
+
+    curve_labels = json.dumps([pt["label"] for pt in summary["equity_curve"]])
+    curve_values = json.dumps([pt["equity"] for pt in summary["equity_curve"]])
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Paper Trade List — {label}</title>
+  <title>NIFTY Desk Report — {label}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root {{ --bg:#0f1117; --card:#181b24; --text:#e5e7eb; --muted:#9ca3af; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b; --line:#2a2f3a; --info:#60a5fa; }}
     * {{ box-sizing: border-box; }}
     body {{ font-family: Segoe UI, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.45; }}
     .wrap {{ max-width: 1200px; margin: 0 auto; }}
     h1 {{ font-size: 1.55rem; margin: 0 0 8px; }}
+    h2.section {{ font-size: 1.05rem; margin: 22px 0 10px; color: var(--muted); font-weight: 600; }}
     .sub {{ color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }}
-    .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }}
+    .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }}
+    .stats-3 {{ grid-template-columns: repeat(6, 1fr); }}
     .stat {{ background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }}
-    .stat .label {{ color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: .04em; }}
-    .stat .value {{ font-size: 1.35rem; font-weight: 600; margin-top: 4px; }}
+    .stat .label {{ color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: .04em; }}
+    .stat .value {{ font-size: 1.3rem; font-weight: 600; margin-top: 4px; }}
     .card {{ background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; overflow-x: auto; }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 0.82rem; min-width: 980px; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 0.82rem; min-width: 1040px; }}
     th, td {{ border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }}
     th {{ color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }}
     .good {{ color: var(--good); font-weight: 600; }}
@@ -266,40 +409,78 @@ def build_trade_list_html(trade_date: date) -> str:
     .muted {{ color: var(--muted); font-size: 0.78rem; }}
     .mono {{ font-family: Consolas, monospace; font-size: 0.76rem; }}
     .tag {{ display: inline-block; background: #1e293b; border: 1px solid var(--line); padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; margin-right: 6px; }}
-    @media (max-width: 900px) {{ .stats {{ grid-template-columns: 1fr 1fr; }} }}
+    @media (max-width: 900px) {{ .stats, .stats-3 {{ grid-template-columns: 1fr 1fr; }} table {{ min-width: 920px; }} }}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Paper Trade List — {label}</h1>
-    <p class="sub">NIFTY F&O Desk · Filed {ist_now()} IST · <span class="tag">trade_list_{label}.html</span></p>
+    <h1>NIFTY Desk Report — {label}</h1>
+    <p class="sub">NIFTY F&O paper desk · Filed {ist_now()} IST · Morning bias {brief.get('combined_bias') or '—'} · <span class="tag">report_{label}.html</span></p>
 
     <div class="stats">
-      <div class="stat"><div class="label">Total trades</div><div class="value">{len(all_trades)}</div></div>
-      <div class="stat"><div class="label">Wins / Losses</div><div class="value">{wins} / {losses}</div></div>
-      <div class="stat"><div class="label">Session net ₹</div><div class="value {net_class}">{_fmt(closed_net, 0)}</div></div>
-      <div class="stat"><div class="label">Morning bias</div><div class="value bad">{brief.get('combined_bias') or '—'}</div></div>
+      <div class="stat"><div class="label">Net P&L ₹</div><div class="value {net_class}">{_fmt(net_total, 0)}</div></div>
+      <div class="stat"><div class="label">Trades (closed)</div><div class="value">{summary['total_trades']} ({summary['closed_count']})</div></div>
+      <div class="stat"><div class="label">Win rate</div><div class="value">{_fmt_opt(summary['win_rate'], 1, '%')}</div></div>
+      <div class="stat"><div class="label">Profit factor</div><div class="value">{_fmt_opt(summary['profit_factor'])}</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="label">Wins / Losses</div><div class="value">{summary['wins']} / {summary['losses']}</div></div>
+      <div class="stat"><div class="label">Avg win / loss ₹</div><div class="value"><span class="good">{_fmt_opt(summary['avg_win'], 0)}</span> / <span class="bad">{_fmt_opt(summary['avg_loss'], 0)}</span></div></div>
+      <div class="stat"><div class="label">Max drawdown ₹</div><div class="value bad">{_fmt(summary['max_drawdown'], 0)}</div></div>
+      <div class="stat"><div class="label">Avg hold (min)</div><div class="value">{_fmt_opt(summary['avg_hold_min'], 0)}</div></div>
     </div>
 
+    <h2 class="section">Equity curve (cumulative net ₹)</h2>
+    <div class="card"><div style="height:300px"><canvas id="equityChart"></canvas></div></div>
+
+    <h2 class="section">Trades</h2>
     <div class="card">
       <table>
         <thead>
           <tr>
-            <th>#</th><th>ID</th><th>In</th><th>Out</th><th>Side</th><th>Strike</th>
+            <th>#</th><th>ID</th><th>In</th><th>Out</th><th>Hold</th><th>Side</th><th>Strike</th>
             <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th><th>Exit reason</th>
           </tr>
         </thead>
         <tbody>
-          {''.join(rows_html)}
+          {''.join(rows_html) or '<tr><td colspan="13" class="muted">No paper trades recorded for this day.</td></tr>'}
         </tbody>
       </table>
     </div>
-
+{_nse_filing_block(label)}
     <p class="muted">Spot close ~{_fmt(session_close.get('spot'))} · Open {_fmt(session_close.get('open'))} · Range {_fmt(session_close.get('day_low'))} – {_fmt(session_close.get('day_high'))}</p>
-    <p class="muted">Source: journal/nifty_paper_trades_{label}.jsonl · journal/nifty_oi_signals.jsonl</p>
+    <p class="muted">Source: journal/nifty_paper_trades_{label}.jsonl · journal/nse_eod_filing_{label}.json</p>
   </div>
+  <script>
+    new Chart(document.getElementById('equityChart').getContext('2d'), {{
+      type: 'line',
+      data: {{
+        labels: {curve_labels},
+        datasets: [{{
+          label: 'Cumulative net ₹',
+          data: {curve_values},
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,0.15)',
+          fill: true, tension: 0.2, pointRadius: 3,
+        }}]
+      }},
+      options: {{
+        responsive: true, maintainAspectRatio: false,
+        plugins: {{ legend: {{ labels: {{ color: '#9ca3af' }} }} }},
+        scales: {{
+          x: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#2a2f3a' }} }},
+          y: {{ ticks: {{ color: '#9ca3af' }}, grid: {{ color: '#2a2f3a' }} }}
+        }}
+      }}
+    }});
+  </script>
 </body>
 </html>"""
+
+
+def build_trade_list_html(trade_date: date) -> str:
+    """Back-compat wrapper — the trade list is now the full performance report."""
+    return render_report_html(trade_date)
 
 
 def _load_signal_candidates(trade_date: str) -> List[Dict[str, Any]]:
@@ -589,10 +770,11 @@ def build_session_report(trade_date: date, *, skip_nse: bool = False) -> str:
     elif change_pts is not None and change_pts < -30:
         tape_read = "Gap-down / weak close"
 
+    change_txt = f"{change_pts:+.1f} pts vs prev {_fmt(prev_close)}" if change_pts is not None else "no cash data"
     lines.extend(
         [
             f"**Verdict:** Morning bias **{combined_bias}**. Cash {tape_read} — "
-            f"open {_fmt(day_open)} → close {_fmt(spot)} ({change_pts:+.1f} pts vs prev {_fmt(prev_close)}). "
+            f"open {_fmt(day_open)} → close {_fmt(spot)} ({change_txt}). "
             f"Participant OI velocity active; paper book churned on OI conviction exits.",
             "",
             "### What we knew at open",
@@ -765,16 +947,39 @@ def build_session_report(trade_date: date, *, skip_nse: bool = False) -> str:
 def main() -> None:
     args = parse_args()
     trade_date = datetime.strptime(args.date, "%Y-%m-%d").date() if args.date else date.today()
-    report = build_session_report(trade_date, skip_nse=args.skip_nse)
-    out_path = JOURNAL_DIR / f"eod_{trade_date.isoformat()}_nifty.md"
-    out_path.write_text(report, encoding="utf-8")
-    html_path = JOURNAL_DIR / f"trade_list_{trade_date.isoformat()}.html"
-    html_path.write_text(build_trade_list_html(trade_date), encoding="utf-8")
-    signal_html_path = JOURNAL_DIR / f"signal_list_{trade_date.isoformat()}.html"
+    write_report_files(trade_date, skip_nse=args.skip_nse)
+
+
+def write_report_files(trade_date: date, *, skip_nse: bool = False) -> Dict[str, Path]:
+    """Render and persist all EOD report artifacts. Shared by session-report + email jobs."""
+    label = trade_date.isoformat()
+    report = build_session_report(trade_date, skip_nse=skip_nse)
+    md_path = JOURNAL_DIR / f"eod_{label}_nifty.md"
+    md_path.write_text(report, encoding="utf-8")
+
+    report_html = render_report_html(trade_date)
+    report_path = JOURNAL_DIR / f"report_{label}.html"
+    report_path.write_text(report_html, encoding="utf-8")
+    # Static "latest" copy so nginx can serve a stable URL (report_latest.html).
+    latest_path = JOURNAL_DIR / "report_latest.html"
+    latest_path.write_text(report_html, encoding="utf-8")
+    # Back-compat filename.
+    trade_list_path = JOURNAL_DIR / f"trade_list_{label}.html"
+    trade_list_path.write_text(report_html, encoding="utf-8")
+
+    signal_html_path = JOURNAL_DIR / f"signal_list_{label}.html"
     signal_html_path.write_text(build_signal_list_html(trade_date), encoding="utf-8")
-    print(f"EOD session report: {out_path}")
-    print(f"Trade list HTML: {html_path}")
-    print(f"Signal list HTML: {signal_html_path}")
+
+    paths = {
+        "eod_md": md_path,
+        "report_html": report_path,
+        "report_latest": latest_path,
+        "trade_list": trade_list_path,
+        "signal_list": signal_html_path,
+    }
+    for label_key, path in paths.items():
+        print(f"{label_key}: {path}")
+    return paths
 
 
 if __name__ == "__main__":
