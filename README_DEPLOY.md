@@ -77,8 +77,38 @@ Fallback (manual, on the box): `/opt/nifty-dashboard/.venv/bin/python -m nifty.k
 | 19:00 | NSE EOD: F&O bhavcopy/participant OI/vol | `nifty-eod-fo.timer` |
 | 19:30, 20:00 | NSE EOD retry-missing | `nifty-eod-retry.timer` |
 | 19:35 | **EOD filing → FII/DII for tomorrow's dashboard** | `nifty-eod-filing.timer` |
+| 20:15 | Regenerate report (now incl. FII/DII) + **email the zip** | `nifty-email-report.timer` |
 
 Jobs auto-skip weekends and NSE holidays (override with `--force`).
+
+## Reports & sharing
+
+The desk produces a TradingView-style performance report each day (summary cards, equity
+curve, full trade table with entry/exit times + hold duration, and the NSE FII/DII block).
+
+- **Open anytime (any device):** `https://your-domain.example/reports/report_latest.html`
+  — static files nginx serves straight off disk, so they work in the evening even though the
+  dashboard service stops at 16:05. Browse older days at `/reports/`.
+- **Live intraday:** while the dashboard is up (09:10–16:05) the same report renders at
+  `https://your-domain.example/report` (or `/report/YYYY-MM-DD`) so you can watch the equity
+  curve build during the session.
+- **Auto-email:** the 20:15 timer zips the report + signal list + FII/DII filing and emails it
+  to everyone in `REPORT_EMAIL_TO` + `REPORT_EMAIL_CC` (one shared email). Forward from your
+  inbox to WhatsApp if needed.
+
+To enable email, set these in `.env` (Gmail needs a 16-char **App Password** from
+Google account → Security → App passwords — not your normal password):
+
+```
+REPORT_EMAIL_FROM=you@gmail.com
+REPORT_EMAIL_APP_PASSWORD=xxxxxxxxxxxxxxxx
+REPORT_EMAIL_TO=you@gmail.com,partner@gmail.com
+REPORT_EMAIL_CC=mentor@example.com
+REPORT_PUBLIC_URL=https://your-domain.example/reports
+```
+
+If those are blank the 20:15 job just regenerates the files and skips the send (never errors).
+Test manually: `python -m nifty.jobs email-report --force` (`--no-send` to only rebuild files).
 
 ## How the context lights up (producer → file → consumer)
 
