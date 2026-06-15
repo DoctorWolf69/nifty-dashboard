@@ -1,0 +1,10 @@
+[Unit]
+Description=EOD filing 19:35 IST
+
+[Timer]
+OnCalendar=Mon..Fri 19:35 Asia/Kolkata
+Persistent=false
+Unit=nifty-job@eod-filing.service
+
+[Install]
+WantedBy=timers.target

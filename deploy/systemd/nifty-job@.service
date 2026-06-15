@@ -1,0 +1,11 @@
+[Unit]
+Description=NIFTY desk job: %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__APPDIR__
+Environment=TZ=Asia/Kolkata
+ExecStart=__APPDIR__/.venv/bin/python -m nifty.jobs %i

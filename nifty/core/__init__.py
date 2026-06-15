@@ -1,0 +1,1 @@
+"""NIFTY desk package."""

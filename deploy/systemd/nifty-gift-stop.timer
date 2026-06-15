@@ -1,0 +1,9 @@
+[Unit]
+Description=Stop GIFT monitor 03:05 IST
+
+[Timer]
+OnCalendar=Tue..Sat 03:05 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Pre-market scan 09:01 IST
+
+[Timer]
+OnCalendar=Mon..Fri 09:01 Asia/Kolkata
+Persistent=false
+Unit=nifty-job@premarket.service
+
+[Install]
+WantedBy=timers.target

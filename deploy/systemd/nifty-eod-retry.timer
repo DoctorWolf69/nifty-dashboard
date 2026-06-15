@@ -1,0 +1,10 @@
+[Unit]
+Description=NSE EOD retry 19:30 & 20:00 IST
+
+[Timer]
+OnCalendar=Mon..Fri 19:30 Asia/Kolkata
+OnCalendar=Mon..Fri 20:00 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

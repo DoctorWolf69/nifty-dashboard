@@ -1,0 +1,27 @@
+# Secrets — never commit
+.env
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Runtime data (SQLite ticks + dated JSON artifacts)
+data/live_nifty_oi/
+data/gift_nifty/
+data/nse_eod/
+journal/
+!journal/.gitkeep
+!data/.gitkeep
+
+# Logs
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db

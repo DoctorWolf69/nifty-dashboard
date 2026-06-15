@@ -1,0 +1,9 @@
+[Unit]
+Description=NSE EOD cash reports 18:30 IST
+
+[Timer]
+OnCalendar=Mon..Fri 18:30 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

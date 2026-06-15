@@ -1,0 +1,9 @@
+[Unit]
+Description=NSE EOD FII/DII+VIX 18:00 IST
+
+[Timer]
+OnCalendar=Mon..Fri 18:00 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

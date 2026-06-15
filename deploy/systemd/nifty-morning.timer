@@ -1,0 +1,10 @@
+[Unit]
+Description=Morning pipeline 08:15 IST
+
+[Timer]
+OnCalendar=Mon..Fri 08:15 Asia/Kolkata
+Persistent=false
+Unit=nifty-job@morning.service
+
+[Install]
+WantedBy=timers.target

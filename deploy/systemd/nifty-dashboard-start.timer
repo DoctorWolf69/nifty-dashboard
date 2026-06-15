@@ -1,0 +1,9 @@
+[Unit]
+Description=Start dashboard 09:10 IST
+
+[Timer]
+OnCalendar=Mon..Fri 09:10 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

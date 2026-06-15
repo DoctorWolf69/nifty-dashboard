@@ -1,0 +1,9 @@
+[Unit]
+Description=NSE EOD F&O reports 19:00 IST
+
+[Timer]
+OnCalendar=Mon..Fri 19:00 Asia/Kolkata
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Session EOD report 15:40 IST
+
+[Timer]
+OnCalendar=Mon..Fri 15:40 Asia/Kolkata
+Persistent=false
+Unit=nifty-job@session-report.service
+
+[Install]
+WantedBy=timers.target

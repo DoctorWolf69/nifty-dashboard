@@ -1,0 +1,6 @@
+[Unit]
+Description=Start nifty-dashboard.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start nifty-dashboard.service

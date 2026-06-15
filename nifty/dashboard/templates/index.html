@@ -1,0 +1,1141 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NIFTY OI Velocity Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+      :root {
+        --bg: #0f1218;
+        --card: #151a23;
+        --border: #273244;
+        --fg: #e5e7eb;
+        --muted: #9ca3af;
+        --good: #34d399;
+        --bad: #f87171;
+        --warn: #fbbf24;
+        --info: #60a5fa;
+      }
+      body { margin: 16px; background: var(--bg); color: var(--fg); font-family: Arial, sans-serif; }
+      h1, h2 { margin: 8px 0; }
+      .meta { color: var(--muted); margin-bottom: 12px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+      .row { display: flex; justify-content: space-between; gap: 10px; margin: 4px 0; }
+      .label { color: var(--muted); }
+      .good { color: var(--good); }
+      .bad { color: var(--bad); }
+      .warn { color: var(--warn); }
+      .info { color: var(--info); }
+      table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); }
+      th, td { padding: 8px; border-bottom: 1px solid var(--border); font-size: 13px; text-align: right; }
+      th:first-child, td:first-child, th:last-child, td:last-child { text-align: left; }
+      th { color: var(--muted); font-weight: 600; }
+      .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); }
+      .ce { color: var(--bad); }
+      .pe { color: var(--good); }
+      .small { font-size: 12px; color: var(--muted); }
+      select { font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>NIFTY OI Velocity Dashboard</h1>
+    <div id="principles" class="card" style="border-color: #3b4f6b; margin-bottom: 12px;"></div>
+    <div id="meta" class="meta">Connecting to dashboard...</div>
+    <div id="heartbeat" class="card" style="margin-bottom:12px;border-color:#334155">
+      <div class="row"><span class="label">Live feed</span><span id="heartbeatStatus" class="warn">Checking...</span></div>
+      <div class="small" id="heartbeatDetail">Waiting for first API response from /api/state</div>
+    </div>
+    <div id="streamBanner" style="display:none" class="card bad"></div>
+    <div class="card">
+      <div class="row">
+        <span class="label">Kite Login</span>
+        <span><a href="/kite/login" target="_blank" style="color: var(--info)">Open login endpoint</a></span>
+      </div>
+      <div class="small">If status is SETUP_REQUIRED, open the login endpoint, then open the returned Zerodha login_url.</div>
+    </div>
+    <div id="summary" class="grid"></div>
+    <h2>Morning Context</h2>
+    <div id="morningContext" class="card" style="border-color:#3b4f6b"></div>
+    <h2>Key Levels (Institutional + Retail)</h2>
+    <div id="keyLevels" class="grid"></div>
+    <h2>Intraday Playbook</h2>
+    <div id="playbook" class="card" style="border-color:#3b4f6b"></div>
+    <h2>Live OI + Price Chart</h2>
+    <div class="small" style="margin-bottom:8px">Top = NIFTY spot. Bottom = selected strike with <strong>CE + PE premium</strong> (left) and <strong>CE + PE OI</strong> (right).</div>
+    <div class="card">
+      <div class="row">
+        <span class="label">Strike (CE + PE)</span>
+        <select id="chartStrike" style="background:#151a23;color:#e5e7eb;border:1px solid #273244;padding:4px 8px;border-radius:6px;min-width:280px"></select>
+      </div>
+      <div style="height:280px;margin-top:10px"><canvas id="spotChart"></canvas></div>
+      <div style="height:320px;margin-top:12px"><canvas id="oiPriceChart"></canvas></div>
+      <div id="chartBehaviorLegend" class="small" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap"></div>
+      <div id="chartMeta" class="small" style="margin-top:8px"></div>
+    </div>
+    <h2>Session Awareness</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Session</th>
+          <th>IST</th>
+          <th>Status</th>
+          <th>Timing</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody id="sessions"></tbody>
+    </table>
+    <h2>Retail Technical Levels</h2>
+    <div id="technicals" class="grid"></div>
+    <h2>GIFT Nifty — Overnight / Post-Close</h2>
+    <div id="gift" class="card"></div>
+    <h2>Index Futures — Macro Layer (Live + EOD)</h2>
+    <div id="futuresLayer" class="card" style="border-color:#3b4f6b"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>Series</th>
+          <th>Contract</th>
+          <th>LTP</th>
+          <th>Basis</th>
+          <th>OI</th>
+          <th>1m Δ</th>
+          <th>5m Δ</th>
+          <th>15m Δ</th>
+          <th>Behavior</th>
+          <th>Read</th>
+        </tr>
+      </thead>
+      <tbody id="futuresContracts"></tbody>
+    </table>
+    <h2>Options Analytics — Phases 7–9 (Delta · Greeks · IV)</h2>
+    <div id="optionsAnalytics" class="card" style="border-color:#3b4f6b"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>Strike</th>
+          <th>CE IV</th>
+          <th>PE IV</th>
+          <th>CE Δ</th>
+          <th>PE Δ</th>
+          <th>CE Γ</th>
+          <th>PE Γ</th>
+          <th>Dealer Δ</th>
+          <th>GEX</th>
+        </tr>
+      </thead>
+      <tbody id="optionsChain"></tbody>
+    </table>
+    <h2>Expiry Gamma Blast Monitor</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Strike</th>
+          <th>Spot Dist</th>
+          <th>CE OI</th>
+          <th>PE OI</th>
+          <th>CE 5m Delta</th>
+          <th>PE 5m Delta</th>
+          <th>Compression</th>
+          <th>Signal</th>
+          <th>Direction</th>
+        </tr>
+      </thead>
+      <tbody id="gamma"></tbody>
+    </table>
+    <h2>Abnormal OI Add Alerts</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Contract</th>
+          <th>LTP</th>
+          <th>OI</th>
+          <th>1m Delta</th>
+          <th>1m %</th>
+          <th>5m Delta</th>
+          <th>5m %</th>
+          <th>15m Delta</th>
+          <th>15m %</th>
+          <th>Spot Dist</th>
+          <th>Key Area</th>
+          <th>Direction</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody id="abnormal"></tbody>
+    </table>
+    <h2>Signal Confluence Scoreboard</h2>
+    <div class="small" style="margin-bottom:6px">Scores <strong>every</strong> writer alert for review (journal). <strong>Paper = YES</strong> only when score ≥ min <em>and Blockers column is empty</em>. One open paper trade blocks all new entries.</div>
+    <div id="paperGateNote" class="small" style="margin-bottom:6px"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Grade</th>
+          <th>Score</th>
+          <th>Decision</th>
+          <th>Strike</th>
+          <th>Writer</th>
+          <th>Key</th>
+          <th>OI</th>
+          <th>Vol</th>
+          <th>Spot</th>
+          <th>Comm</th>
+          <th>Paper</th>
+          <th>Fut</th>
+          <th>Ph7-9</th>
+          <th>Blockers</th>
+        </tr>
+      </thead>
+      <tbody id="signalCandidates"></tbody>
+    </table>
+    <h2>System Trade Decisions</h2>
+    <div id="journalStatus" class="small" style="margin-bottom:8px;padding:8px;border:1px solid #334155;border-radius:6px"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Status</th>
+          <th>Time</th>
+          <th>Decision</th>
+          <th>Strike</th>
+          <th>Entry Contract</th>
+          <th>Entry</th>
+          <th>Current</th>
+          <th>Stop</th>
+          <th>Target</th>
+          <th>P&L %</th>
+          <th>Net ₹</th>
+          <th>Comm ₹</th>
+          <th>Comm Conv</th>
+          <th>OI Conv</th>
+          <th>OI Read</th>
+          <th>Exit</th>
+          <th>Confluence</th>
+          <th>Thesis</th>
+        </tr>
+      </thead>
+      <tbody id="signals"></tbody>
+    </table>
+    <h2>Strike Pair View</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Strike</th>
+          <th>CE LTP</th>
+          <th>CE OI</th>
+          <th>CE 1m</th>
+          <th>CE 5m</th>
+          <th>CE 15m</th>
+          <th>PE LTP</th>
+          <th>PE OI</th>
+          <th>PE 1m</th>
+          <th>PE 5m</th>
+          <th>PE 15m</th>
+          <th>Read</th>
+        </tr>
+      </thead>
+      <tbody id="pairs"></tbody>
+    </table>
+    <h2>Depth Concentration</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Contract</th>
+          <th>LTP</th>
+          <th>OI</th>
+          <th>5m OI Delta</th>
+          <th>15m OI Delta</th>
+          <th>Buy Qty/Orders</th>
+          <th>Sell Qty/Orders</th>
+          <th>Sell Avg Qty/Order</th>
+          <th>Last Qty</th>
+        </tr>
+      </thead>
+      <tbody id="depth"></tbody>
+    </table>
+    <script>
+      const fmt = (v, d=2) => Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: d });
+      const cls = (v) => Number(v || 0) > 0 ? "good" : Number(v || 0) < 0 ? "bad" : "info";
+      const vel = (obj) => {
+        const pct = Number((obj || {}).pct || 0);
+        const delta = Number((obj || {}).delta || 0);
+        return `<span class="${cls(delta)}">${fmt(delta, 0)} / ${fmt(pct)}%</span>`;
+      };
+      function leg(row, side, key) {
+        const data = row[side] || {};
+        if (key === "ltp") return fmt(data.last_price);
+        if (key === "oi") return fmt(data.oi, 0);
+        if (key === "v1") return vel(data.velocity_1m);
+        if (key === "v5") return vel(data.velocity_5m);
+        if (key === "v15") return vel(data.velocity_15m);
+        return "-";
+      }
+      function sessionTone(status) {
+        if (status === "ACTIVE") return "warn";
+        if (status === "UPCOMING") return "info";
+        return "muted";
+      }
+      function renderSessions(data) {
+        const ctx = data.session_context || {};
+        const rows = ctx.sessions || [];
+        document.getElementById("sessions").innerHTML = rows.length ? rows.map(r => {
+          const timing = r.status === "UPCOMING"
+            ? `in ${r.minutes_until}m`
+            : (r.status === "PASSED" ? `${r.minutes_since}m ago` : "now");
+          return `<tr>
+            <td>${r.label}</td>
+            <td>${r.ist_time}</td>
+            <td><span class="pill ${sessionTone(r.status)}">${r.status}</span></td>
+            <td>${timing}</td>
+            <td class="small">${r.note || ""}</td>
+          </tr>`;
+        }).join("") : `<tr><td colspan="5" class="small">Session timeline unavailable.</td></tr>`;
+      }
+      function renderGift(data) {
+        const gift = (data.session_context || {}).gift_nifty || {};
+        const front = gift.front_month || {};
+        const cash = gift.nse_cash || {};
+        const session = gift.session || {};
+        const prem = gift.premium_vs_nse_close;
+        const premTone = prem == null ? "info" : (prem > 0 ? "good" : prem < 0 ? "bad" : "info");
+        document.getElementById("gift").innerHTML = `
+          <div class="row"><span class="label">GIFT front month</span><span>${fmt(front.last_price)} (${front.expiry || "-"})</span></div>
+          <div class="row"><span class="label">NSE Nifty close</span><span>${fmt(cash.last)}</span></div>
+          <div class="row"><span class="label">Premium vs NSE</span><span class="${premTone}">${prem != null ? fmt(prem) + " pts (" + fmt(gift.premium_pct) + "%)" : "-"}</span></div>
+          <div class="row"><span class="label">Overnight bias</span><span class="pill ${premTone}">${gift.overnight_bias || "-"}</span></div>
+          <div class="row"><span class="label">GIFT session</span><span>${session.status || "-"} ${session.active_session_label ? ("— " + session.active_session_label) : ""}</span></div>
+          <div class="row"><span class="label">Updated</span><span class="small">${gift.generated_at || "-"}</span></div>
+          <div class="small">${gift.note || ""}</div>
+          ${(gift.errors || []).map(e => `<div class="bad small">${e}</div>`).join("")}`;
+      }
+      function renderTechnicals(data) {
+        const ctx = data.session_context || {};
+        const levels = ctx.technical_levels || {};
+        const spot = Number(data.spot || 0);
+        const cards = [20, 50, 100, 200].map(p => {
+          const ema = levels[`ema_${p}`];
+          const dist = levels[`ema_${p}_dist`];
+          const tone = dist == null ? "info" : (dist > 0 ? "good" : "bad");
+          return `<div class="card">
+            <div class="row"><span class="label">EMA ${p}</span><span>${ema != null ? fmt(ema) : "-"}</span></div>
+            <div class="row"><span class="label">Spot dist</span><span class="${tone}">${dist != null ? fmt(dist) + " pts" : "-"}</span></div>
+          </div>`;
+        }).join("");
+        const next = ctx.next_session;
+        const active = (ctx.active_sessions || []).map(s => s.label).join(", ") || "None";
+        document.getElementById("technicals").innerHTML =
+          cards +
+          `<div class="card">
+            <h2>Context</h2>
+            <div class="row"><span class="label">Spot</span><span>${fmt(spot)}</span></div>
+            <div class="row"><span class="label">EMA source</span><span class="small">${levels.source || "-"} ${levels.as_of ? ("as of " + levels.as_of) : ""}</span></div>
+            <div class="row"><span class="label">Active session</span><span class="warn">${active}</span></div>
+            <div class="row"><span class="label">Next / now</span><span>${next ? next.label + " (" + next.status + ")" : "-"}</span></div>
+            ${(ctx.retail_notes || []).map(n => `<div class="small">• ${n}</div>`).join("")}
+          </div>`;
+      }
+      function renderPrinciples(data) {
+        const p = data.desk_principles || {};
+        const rules = data.signal_rules || {};
+        const orb = rules.orb_no_trade_active
+          ? `<span class="warn">${rules.is_expiry_day ? "EXPIRY" : "ORB"} watch ${rules.orb_no_trade_window || "9:15–9:30"} — no fresh entries (${Math.floor((rules.orb_no_trade_seconds_remaining || 0) / 60)}m left)</span>`
+          : "";
+        const focus = rules.max_open_signals
+          ? `<span class="info">Signal focus: max ${rules.max_open_signals} open${rules.block_same_thesis_stack ? ", no stack while holding" : ""}, same direction, ±${rules.max_strike_distance_pts || 150} pts ATM</span>`
+          : "";
+        const late = rules.late_session_active ? `<span class="warn">Late session — no fresh signals after ${rules.late_session_cutoff || "15:15"}</span>` : "";
+        document.getElementById("principles").innerHTML = `
+          <div class="row"><span class="label">Desk rule</span><span class="info">${p.headline || "Bias is context. Participant action is truth."}</span></div>
+          ${(p.rules || []).map(r => `<div class="small">• ${r}</div>`).join("")}
+          ${focus ? `<div class="small" style="margin-top:6px">${focus}</div>` : ""}
+          ${orb ? `<div class="small" style="margin-top:6px">${orb}</div>` : ""}
+          ${late ? `<div class="small" style="margin-top:6px">${late}</div>` : ""}`;
+      }
+      function levelTone(tag, dist) {
+        if (tag === "At price") return "warn";
+        if (dist == null) return "info";
+        return dist > 0 ? "good" : "bad";
+      }
+      function renderLevelRows(rows) {
+        return (rows || []).map((row) => {
+          const tone = levelTone(row.tag, row.distance);
+          const distTxt = row.distance != null ? `${row.distance > 0 ? "+" : ""}${fmt(row.distance)}` : "-";
+          return `<div class="row"><span class="label">${row.name}${row.note ? " <span class='small'>(" + row.note + ")</span>" : ""}</span><span>${fmt(row.value)} <span class="${tone}">${row.tag || ""} ${distTxt}</span></span></div>`;
+        }).join("") || `<div class="small">No data</div>`;
+      }
+      function renderKeyLevels(data) {
+        const kl = data.key_levels || (data.morning_context || {}).key_levels || {};
+        if (!kl.pivot_rows && !kl.reference_ohlc) {
+          document.getElementById("keyLevels").innerHTML = `<div class="card"><div class="small warn">Key levels not loaded — run morning_desk_pipeline.py</div></div>`;
+          return;
+        }
+        const ma = kl.moving_averages || {};
+        const ex = kl.period_extremes || {};
+        const oi = kl.oi || {};
+        const sess = kl.session_live || {};
+        const gap = kl.open_gap || {};
+        const liveHdr = kl.live_context
+          ? `<div class="row"><span class="label">Live spot</span><span class="good">${fmt(kl.spot)}</span></div>
+             <div class="row"><span class="label">Open / gap</span><span>${fmt(sess.open)} <span class="${gap.gap_type === "GAP_UP" ? "good" : gap.gap_type === "GAP_DOWN" ? "bad" : "info"}">${gap.gap_type || "-"} ${gap.gap_pts != null ? (gap.gap_pts > 0 ? "+" : "") + fmt(gap.gap_pts) : ""}</span></span></div>
+             <div class="small">Ref day ${kl.reference_day || "-"} · pivots from prior session · OI ${oi.data_source || "morning"} ${kl.live_updated_at ? "· live " + kl.live_updated_at.slice(11) : ""}</div>`
+          : `<div class="row"><span class="label">Spot at capture</span><span>${fmt(kl.spot)}</span></div>`;
+        const maRows = ["ema_9","ema_21","sma_20","ema_50","sma_50","sma_100","ema_200","sma_200"].map((key) => {
+          const label = key.replace("_", " ").toUpperCase();
+          return { name: label, value: ma[key], note: "", distance: ma[`${key}_dist`], tag: ma[`${key}_tag`] };
+        });
+        document.getElementById("keyLevels").innerHTML = `
+          <div class="card"><h2>Live context</h2>${liveHdr}</div>
+          <div class="card"><h2>Pivot points (yesterday)</h2>${renderLevelRows(kl.pivot_rows)}</div>
+          <div class="card"><h2>Camarilla (institutional)</h2>${renderLevelRows(kl.camarilla_rows)}</div>
+          <div class="card"><h2>Moving averages</h2>${renderLevelRows(maRows)}</div>
+          <div class="card"><h2>Fibonacci (${fmt(kl.fibonacci?.swing_high)} → ${fmt(kl.fibonacci?.swing_low)})</h2>${renderLevelRows(kl.fibonacci_rows)}</div>
+          <div class="card">
+            <h2>Period highs &amp; lows + OI</h2>
+            <div class="row"><span class="label">52W High</span><span>${fmt(ex["52w_high"])}</span></div>
+            <div class="row"><span class="label">52W Low</span><span>${fmt(ex["52w_low"])}</span></div>
+            <div class="row"><span class="label">52W Position</span><span>${ex.range_position_pct != null ? ex.range_position_pct + "% of range" : "-"}</span></div>
+            <div class="row"><span class="label">6M High / Low</span><span>${fmt(ex["6m_high"])} / ${fmt(ex["6m_low"])}</span></div>
+            <div class="row"><span class="label">Month High / Low</span><span>${fmt(ex.month_high)} / ${fmt(ex.month_low)}</span></div>
+            <div class="row"><span class="label">Week High / Low</span><span>${fmt(ex.week_high)} / ${fmt(ex.week_low)}</span></div>
+            <div class="row"><span class="label">ATR 14d</span><span>${fmt(kl.atr_14d)} pts/day</span></div>
+            <div class="row"><span class="label">OI Ceiling</span><span>${oi.ceiling?.label || fmt(oi.ceiling?.strike)}</span></div>
+            <div class="row"><span class="label">OI Floor</span><span>${oi.floor?.label || fmt(oi.floor?.strike)}</span></div>
+            <div class="row"><span class="label">Max Pain</span><span>${oi.max_pain_label || fmt(oi.max_pain)} ${oi.max_pain_vs_spot != null ? `<span class="small">(${oi.max_pain_vs_spot > 0 ? "+" : ""}${fmt(oi.max_pain_vs_spot)} vs spot)</span>` : ""}</span></div>
+          </div>`;
+      }
+      function renderMorningContext(data) {
+        const mc = data.morning_context || {};
+        const pb = data.intraday_playbook || {};
+        const rules = data.signal_rules || {};
+        const bv = pb.bias_verdict || {};
+        const inst = mc.instrument_selection || {};
+        const oi = mc.oi_map || {};
+        const liveGap = mc.live_open_gap || (mc.morning_desk || {}).nifty?.open_gap || {};
+        const tone = (status) => status === "CONFIRMED" ? "good" : status === "REJECTED" || status === "TRAP" ? "bad" : "warn";
+        const brief = mc.desk_brief || {};
+        const expRules = mc.expiry_rules || {};
+        const scenarios = mc.expiry_scenarios || [];
+        const mpCtx = expRules.max_pain_context || {};
+        const expTag = mc.is_expiry_day || rules.is_expiry_day ? `<span class="warn">EXPIRY DAY</span>` : "";
+        const loaded = mc.loaded ? "" : `<div class="small warn">Morning pipeline not loaded — run morning_desk_pipeline.py</div>`;
+        document.getElementById("morningContext").innerHTML = `
+          ${loaded}
+          ${expTag ? `<div class="row"><span class="label">Session</span><span>${expTag}</span></div>` : ""}
+          ${brief.narrative_one_line ? `<div class="small" style="margin-bottom:8px">${brief.narrative_one_line}</div>` : ""}
+          <div class="row"><span class="label">Combined bias</span><span>${mc.combined_bias || bv.expected_bias || "-"}</span></div>
+          <div class="row"><span class="label">Primary / secondary</span><span>${mc.chosen_instrument || inst.instrument || "NIFTY"}${mc.secondary_instrument ? " → " + mc.secondary_instrument + " after 9:45" : ""}</span></div>
+          <div class="row"><span class="label">Live spot</span><span>${fmt(mc.live_spot || data.spot)}</span></div>
+          <div class="row"><span class="label">Open gap</span><span class="${liveGap.gap_type === "GAP_UP" || liveGap.gap_type === "MILD_UP" ? "good" : liveGap.gap_type === "GAP_DOWN" || liveGap.gap_type === "MILD_DOWN" ? "bad" : "info"}">${liveGap.gap_type || pb.cash_open_gap_type || "-"} ${liveGap.gap_pts != null ? (liveGap.gap_pts > 0 ? "+" : "") + fmt(liveGap.gap_pts) : pb.gap_points != null ? (pb.gap_points > 0 ? "+" : "") + fmt(pb.gap_points) : ""}</span></div>
+          <div class="row"><span class="label">Cash open</span><span>${fmt((pb.cash_open_gap || {}).reference_open || (data.levels || {}).open)} vs prev ${fmt((data.levels || {}).prev_close)}</span></div>
+          <div class="row"><span class="label">OI floor / ceiling</span><span>${oi.floor?.strike || mc.oi_floor || "-"} / ${oi.ceiling?.strike || mc.oi_ceiling || "-"}</span></div>
+          <div class="row"><span class="label">Max pain</span><span>${brief.max_pain || oi.max_pain || mc.max_pain || "-"}${mpCtx.close_vs_max_pain_pts != null ? ` <span class="small">(close ${mpCtx.close_vs_max_pain_pts > 0 ? "+" : ""}${fmt(mpCtx.close_vs_max_pain_pts)} vs MP)</span>` : ""}</span></div>
+          ${(() => {
+            const fe = mc.futures_eod || {};
+            const fii = (fe.participants || []).find(p => p.participant === "FII") || {};
+            if (!fe.loaded) return `<div class="row"><span class="label">EOD index fut</span><span class="small warn">Prior session participant file not loaded</span></div>`;
+            return `<div class="row"><span class="label">EOD index fut (FII)</span><span class="${fii.bias === "SHORT" ? "bad" : fii.bias === "LONG" ? "good" : "info"}">L ${fmt(fii.index_long, 0)} / S ${fmt(fii.index_short, 0)} · net ${fmt(fii.index_net, 0)} · ${fe.macro_bias || "-"}</span></div>
+            <div class="small">${fe.read || ""} <span class="muted">(source ${fe.source_date || "-"})</span></div>`;
+          })()}
+          ${scenarios.length ? `<div style="margin-top:8px"><div class="small">Expiry scenarios</div>${scenarios.map(s => `<div class="small">• ${s.id}) ${s.label} (${s.weight_pct}%) — ${s.trade || s.path}</div>`).join("")}</div>` : ""}
+          <div class="row"><span class="label">Bias vs open</span><span class="${tone(bv.verdict)}">${bv.verdict || "PENDING"}</span></div>
+          <div class="small">${bv.detail || (data.spot && (data.levels || {}).open ? "Open captured — refreshing bias read" : "Waiting for Kite cash open (need spot open + prev close)")}</div>
+        `;
+      }
+      function renderPlaybook(data) {
+        const pb = data.intraday_playbook || {};
+        const checks = pb.checks || [];
+        const tone = (status) => status === "ok" ? "good" : status === "bad" ? "bad" : status === "warn" ? "warn" : "info";
+        const checkRows = checks.map((c) =>
+          `<div class="row"><span class="label">${c.label}</span><span class="${tone(c.status)}">${c.detail}</span></div>`
+        ).join("");
+        const strikeRows = (pb.pe_strike_watch || []).map((row) => {
+          if (!row.tracked) {
+            return `<tr><td>${row.strike}</td><td colspan="6" class="small">${row.read}</td></tr>`;
+          }
+          return `<tr>
+            <td>${row.strike}</td>
+            <td class="${tone(row.status)}">${(row.behavior || "").replaceAll("_", " ")}</td>
+            <td>${fmt(row.pe_oi_5m_delta, 0)} / ${fmt(row.pe_oi_5m_pct)}%</td>
+            <td>${fmt(row.pe_premium_5m_delta)}</td>
+            <td class="${cls(row.spot_5m_delta)}">${fmt(row.spot_5m_delta)}</td>
+            <td>${fmt(row.spot_dist)}</td>
+            <td class="small">${row.read}</td>
+          </tr>`;
+        }).join("");
+        const rules = data.signal_rules || {};
+        const orbBanner = pb.no_trade_window_active || rules.orb_no_trade_active
+          ? `<div class="small warn" style="margin-top:6px;padding:6px;border:1px solid #854d0e;border-radius:6px">⏸ ${rules.is_expiry_day ? "EXPIRY WATCH 9:15–9:45" : "ORB WATCH 9:15–9:30"} — no fresh paper entries. ${pb.phase_note || "Watch ORB high/low form."}</div>`
+          : "";
+        document.getElementById("playbook").innerHTML = `
+          ${orbBanner}
+          <div class="row"><span class="label">Phase</span><span class="pill ${tone(pb.can_extend ? "ok" : "warn")}">${pb.phase || "-"}</span></div>
+          <div class="row"><span class="label">Cash open gap</span><span>${pb.cash_open_gap_type || pb.gap_type || "-"} ${pb.gap_points != null ? (pb.gap_points > 0 ? "+" : "") + fmt(pb.gap_points) : ""} pts</span></div>
+          <div class="row"><span class="label">Playbook gap</span><span>${pb.gap_type || "-"} (±${rules.gap_playbook_threshold || 30} pt rule)</span></div>
+          <div class="small">${pb.phase_note || ""}</div>
+          <div class="small" style="margin-top:6px">${pb.playbook || ""}</div>
+          <div style="margin-top:10px">${checkRows}</div>
+          <div class="small" style="margin-top:10px">Spot 5m: ${fmt((pb.spot_5m || {}).delta)} pts (${fmt((pb.spot_5m || {}).pct)}%)</div>
+          <table style="margin-top:10px">
+            <thead>
+              <tr>
+                <th>Strike</th>
+                <th>PE vs Spot</th>
+                <th>PE OI 5m</th>
+                <th>PE prem 5m</th>
+                <th>Spot 5m</th>
+                <th>Spot dist</th>
+                <th>Read</th>
+              </tr>
+            </thead>
+            <tbody>${strikeRows || `<tr><td colspan="7" class="small">No strike data yet</td></tr>`}</tbody>
+          </table>
+          ${(pb.pe_divergence || []).length ? `<div class="small bad" style="margin-top:8px">PE divergence: ${pb.pe_divergence.map(r => r.strike + " PE add, spot " + (r.behavior || "").replace("PE_ADD_SPOT_", "").toLowerCase()).join(" | ")}</div>` : ""}
+          ${(pb.pe_confirmed || []).length ? `<div class="small good" style="margin-top:4px">PE confirmed: ${pb.pe_confirmed.map(r => r.strike).join(", ")}</div>` : ""}
+        `;
+      }
+      function renderSummary(data) {
+        const ce = data.strongest_ce_add || [];
+        const pe = data.strongest_pe_add || [];
+        const rules = data.signal_rules || {};
+        const card = (title, rows, sideClass) => `
+          <div class="card">
+            <h2>${title}</h2>
+            ${rows.map(r => `
+              <div class="row">
+                <span class="${sideClass}">${r.tradingsymbol}</span>
+                <span>${vel(r.velocity_5m)}</span>
+              </div>
+            `).join("") || "<div class='small'>No data yet</div>"}
+          </div>`;
+        document.getElementById("summary").innerHTML =
+          `<div class="card">
+            <h2>Status</h2>
+            <div class="row"><span class="label">Status</span><span>${data.status}</span></div>
+            <div class="row"><span class="label">Spot</span><span>${fmt(data.spot)}</span></div>
+            <div class="row"><span class="label">Expiry</span><span>${data.expiry || "-"}</span></div>
+            <div class="row"><span class="label">Contracts</span><span>${data.instrument_count || 0}</span></div>
+            <div class="row"><span class="label">Key area</span><span>${fmt(rules.key_area_distance_pct)}% from spot</span></div>
+            <div class="row"><span class="label">ORB H/L</span><span>${fmt((data.levels || {}).orb_high)} / ${fmt((data.levels || {}).orb_low)}${(data.levels || {}).orb_high ? "" : ' <span class="small warn">(restore on restart — start by 9:15 or wait for Kite history)</span>'}</span></div>
+            <div class="row"><span class="label">Proof needed</span><span>${rules.min_positive_minute_adds || 0}/${rules.sustained_add_minutes || 0} min + volume</span></div>
+            <div class="row"><span class="label">Commission gate</span><span>${(data.commission_config || {}).min_net_profit_multiple || 3}x round-trip, min ₹${(data.commission_config || {}).min_gross_rupees || 500}</span></div>
+            <div class="row"><span class="label">Data store</span><span class="small">${data.data_store_file || "off"}</span></div>
+            ${data.error ? `<div class="bad">${data.error}</div>` : ""}
+          </div>` +
+          card("Top CE Writer Adds", ce, "ce") +
+          card("Top PE Writer Adds", pe, "pe");
+      }
+      function renderFuturesLayer(data) {
+        const fl = data.futures_layer || {};
+        const eod = fl.eod_participant || {};
+        const tone = (s) => s === "ok" || s === "ALIGNED" ? "good" : s === "bad" || s === "CONFLICT" ? "bad" : s === "warn" || s === "CAUTION" ? "warn" : "info";
+        const contracts = fl.contracts || [];
+        if (!contracts.length) {
+          document.getElementById("futuresLayer").innerHTML = `<div class="small warn">Index futures not subscribed — restart without --no-futures after Kite login.</div>`;
+          document.getElementById("futuresContracts").innerHTML = `<tr><td colspan="10" class="small">No live NIFTY FUT stream</td></tr>`;
+          return;
+        }
+        document.getElementById("futuresLayer").innerHTML = `
+          <div class="row"><span class="label">Layer read</span><span class="${tone(fl.front?.behavior_status)}">${fl.layer_read || "-"}</span></div>
+          <div class="row"><span class="label">Front behavior</span><span class="${tone(fl.front?.behavior_status)}">${(fl.front_behavior || "-").replaceAll("_", " ")}</span></div>
+          <div class="row"><span class="label">Basis (front)</span><span>${fmt(fl.front_basis_pts)} pts vs spot</span></div>
+          <div class="row"><span class="label">EOD macro</span><span class="${tone(eod.macro_bias === "BEARISH" ? "bad" : eod.macro_bias === "BULLISH" ? "good" : "info")}">${eod.macro_bias || "-"} · FII net ${fmt(eod.fii_index_net, 0)} contracts</span></div>
+          <div class="small">Options = strike intent · Futures = directional book. Signals blocked on <strong>FUTURES_MACRO_CONFLICT</strong> when both disagree.</div>`;
+        document.getElementById("futuresContracts").innerHTML = contracts.map(r => `
+          <tr>
+            <td>${r.series_role || "-"}</td>
+            <td class="mono">${r.tradingsymbol}</td>
+            <td>${fmt(r.last_price)}</td>
+            <td class="${cls(r.basis_pts)}">${fmt(r.basis_pts)} (${fmt(r.basis_pct, 3)}%)</td>
+            <td>${fmt(r.oi, 0)}</td>
+            <td class="${cls((r.velocity_1m || {}).delta)}">${fmt((r.velocity_1m || {}).delta, 0)} / ${fmt((r.velocity_1m || {}).pct)}%</td>
+            <td class="${cls((r.velocity_5m || {}).delta)}">${fmt((r.velocity_5m || {}).delta, 0)} / ${fmt((r.velocity_5m || {}).pct)}%</td>
+            <td class="${cls((r.velocity_15m || {}).delta)}">${fmt((r.velocity_15m || {}).delta, 0)} / ${fmt((r.velocity_15m || {}).pct)}%</td>
+            <td class="${tone(r.behavior_status)}">${(r.behavior || "-").replaceAll("_", " ")}</td>
+            <td class="small">${r.behavior_read || ""}</td>
+          </tr>`).join("");
+      }
+      function renderOptionsAnalytics(data) {
+        const oa = data.options_analytics || {};
+        const div = oa.price_delta_divergence || {};
+        const tone = (v) => v === "POSITIVE_GAMMA" || v === "AGGRESSIVE_BUYERS" ? "good"
+          : v === "NEGATIVE_GAMMA" || v === "AGGRESSIVE_SELLERS" ? "bad"
+          : v === "BUYER_ABSORPTION" || v === "SELLER_ABSORPTION" ? "warn" : "info";
+        if (oa.error) {
+          document.getElementById("optionsAnalytics").innerHTML = `<div class="small warn">Options analytics warming up — need live chain + spot.</div>`;
+          document.getElementById("optionsChain").innerHTML = `<tr><td colspan="9" class="small">No chain greeks yet</td></tr>`;
+          return;
+        }
+        document.getElementById("optionsAnalytics").innerHTML = `
+          <div class="row"><span class="label">ATM / IV</span><span>${oa.atm_strike} · IV ${fmt(oa.atm_iv, 2)} (CE ${fmt(oa.atm_ce_iv, 2)} / PE ${fmt(oa.atm_pe_iv, 2)})</span></div>
+          <div class="row"><span class="label">IV skew (PE−CE)</span><span>${fmt(oa.iv_skew_put_minus_call, 2)} · 5m Δ ${fmt(oa.iv_velocity_5m, 2)}</span></div>
+          <div class="row"><span class="label">IV rank / pct</span><span>${oa.iv_rank != null ? oa.iv_rank + "% rank" : "-"} · ${oa.iv_percentile != null ? oa.iv_percentile + "%ile" : "-"} (${oa.iv_history_samples || 0} samples)</span></div>
+          <div class="row"><span class="label">Premium vs VIX</span><span class="${tone(oa.premium_vs_vix)}">${oa.premium_vs_vix || "-"}</span> · India VIX ${fmt(oa.india_vix)}</div>
+          <div class="row"><span class="label">Expected move</span><span>±${fmt(oa.expected_move_pts)} pts · straddle ${fmt(oa.atm_straddle_premium)}</span></div>
+          <div class="row"><span class="label">Net dealer delta</span><span>${fmt(oa.net_dealer_delta, 0)} · Δ change ${fmt(oa.net_dealer_delta_change, 0)}</span></div>
+          <div class="row"><span class="label">Price + delta (Ph 7)</span><span class="${tone(div.label)}">${div.label || "-"}</span></div>
+          <div class="small">${div.read || ""}</div>
+          <div class="row"><span class="label">Net GEX (Ph 8)</span><span class="${tone(oa.gex_regime)}">${fmt(oa.net_gex_cr, 1)} Cr · ${oa.gex_regime || "-"}</span></div>
+          <div class="small">${oa.dealer_positioning || ""}</div>
+          <div class="row"><span class="label">Chain PCR OI</span><span>${fmt(oa.pcr_oi_chain, 2)} · T=${fmt(oa.time_to_expiry_years, 4)}y</span></div>`;
+        const chain = oa.chain_rows || [];
+        document.getElementById("optionsChain").innerHTML = chain.length ? chain.map(r => `
+          <tr>
+            <td>${r.strike}</td>
+            <td>${fmt(r.ce_iv, 2)}</td>
+            <td>${fmt(r.pe_iv, 2)}</td>
+            <td>${fmt(r.ce_delta, 3)}</td>
+            <td>${fmt(r.pe_delta, 3)}</td>
+            <td>${fmt(r.ce_gamma, 4)}</td>
+            <td>${fmt(r.pe_gamma, 4)}</td>
+            <td>${fmt(r.dealer_delta, 0)}</td>
+            <td class="${cls(r.gex)}">${fmt(r.gex, 0)}</td>
+          </tr>`).join("") : `<tr><td colspan="9" class="small">No chain rows</td></tr>`;
+      }
+      function renderGamma(data) {
+        const gamma = data.gamma_blast || {};
+        const rows = gamma.zones || [];
+        document.getElementById("gamma").innerHTML = rows.length ? rows.map(r => `
+          <tr>
+            <td>${r.strike}</td>
+            <td>${fmt(r.distance_from_spot_pct)}%</td>
+            <td>${fmt(r.ce_oi, 0)}</td>
+            <td>${fmt(r.pe_oi, 0)}</td>
+            <td class="${cls(r.ce_5m_delta)}">${fmt(r.ce_5m_delta, 0)}</td>
+            <td class="${cls(r.pe_5m_delta)}">${fmt(r.pe_5m_delta, 0)}</td>
+            <td>${r.compression ? "YES" : "NO"}</td>
+            <td><span class="pill">${r.signal}</span></td>
+            <td>${r.direction}</td>
+          </tr>
+        `).join("") : `<tr><td colspan="9" class="small">No gamma compression zone near spot yet.</td></tr>`;
+      }
+      function renderPairs(data) {
+        document.getElementById("pairs").innerHTML = (data.paired_rows || []).map(row => `
+          <tr>
+            <td>${row.strike}</td>
+            <td>${leg(row, "ce", "ltp")}</td>
+            <td>${leg(row, "ce", "oi")}</td>
+            <td>${leg(row, "ce", "v1")}</td>
+            <td>${leg(row, "ce", "v5")}</td>
+            <td>${leg(row, "ce", "v15")}</td>
+            <td>${leg(row, "pe", "ltp")}</td>
+            <td>${leg(row, "pe", "oi")}</td>
+            <td>${leg(row, "pe", "v1")}</td>
+            <td>${leg(row, "pe", "v5")}</td>
+            <td>${leg(row, "pe", "v15")}</td>
+            <td><span class="pill">${row.read}</span></td>
+          </tr>
+        `).join("");
+      }
+      function renderAbnormal(data) {
+        const rows = data.abnormal_alerts || [];
+        const warming = !rows.length && (((data.rows || [])[0] || {}).recent_1m_deltas || []).length < 3;
+        const warmMsg = warming
+          ? `<tr><td colspan="13" class="small warn">OI velocity warming up after restart — need ~3 min of live ticks before sustained writer-add alerts. 15m column fills after ~15 min. Check Strike Pair View / Depth.</td></tr>`
+          : "";
+        document.getElementById("abnormal").innerHTML = rows.length ? rows.map(r => `
+          <tr>
+            <td class="${r.option_type === "CE" ? "ce" : "pe"}">${r.contract}</td>
+            <td>${fmt(r.last_price)}</td>
+            <td>${fmt(r.oi, 0)}</td>
+            <td>${vel(r.velocity_1m)}</td>
+            <td class="${cls(r.velocity_1m.pct)}">${fmt(r.velocity_1m.pct)}%</td>
+            <td>${vel(r.velocity_5m)}</td>
+            <td class="${cls(r.velocity_5m.pct)}">${fmt(r.velocity_5m.pct)}%</td>
+            <td>${vel(r.velocity_15m)}</td>
+            <td class="${cls(r.velocity_15m.pct)}">${fmt(r.velocity_15m.pct)}%</td>
+            <td>${fmt(r.distance_from_spot_pct)}%</td>
+            <td>${(r.key_area_reasons || []).join(", ")}</td>
+            <td><span class="pill">${r.direction}</span></td>
+            <td>${r.reason}</td>
+          </tr>
+        `).join("") : `${warmMsg}<tr><td colspan="13" class="small">No sustained key-area writer additions right now. Key areas reflect morning-desk logic: near spot, OI walls, round strikes, open/day high-low/prev close/ORB zones. Median positive 5m add: ${fmt((data.abnormal_baseline || {}).median_positive_5m_delta, 0)} · 15m: ${fmt((data.abnormal_baseline || {}).median_positive_15m_delta, 0)}</td></tr>`;
+      }
+      function oiConvTone(level) {
+        if (level === "STRONG") return "good";
+        if (level === "INVALIDATED") return "bad";
+        if (level === "WEAK") return "warn";
+        return "info";
+      }
+      function renderSignalCandidates(data) {
+        const rows = data.signal_candidates || [];
+        const rules = data.signal_rules || {};
+        const minScore = rules.confluence_min_score || 65;
+        const openRows = (data.signals || []).filter(s => s.status === "OPEN");
+        const gateEl = document.getElementById("paperGateNote");
+        if (openRows.length) {
+          const o = openRows[0];
+          gateEl.innerHTML = `<span class="warn">Paper gate: ${openRows.length} OPEN trade (${o.decision} @ ${o.strike}) — MAX_OPEN + THESIS_STACK block new paper until it closes or exits.</span>`;
+        } else if (rows.some(r => (r.blockers || []).length && (r.total_score || 0) >= minScore)) {
+          gateEl.innerHTML = `<span class="info">High scores above but Paper = NO — check Blockers column (spot confirm, writer price, spacing, cooldown).</span>`;
+        } else {
+          gateEl.innerHTML = "";
+        }
+        const dimPass = (dims, key) => (dims[key] || {}).pass ? "good" : "bad";
+        const gradeTone = (g) => g === "A" ? "good" : g === "B" ? "info" : g === "C" ? "warn" : "muted";
+        const futTone = (a) => a === "ALIGNED" ? "good" : a === "CONFLICT" ? "bad" : a === "CAUTION" ? "warn" : "info";
+        document.getElementById("signalCandidates").innerHTML = rows.length ? rows.map(r => {
+          const d = r.dimensions || {};
+          const blockers = r.blockers || [];
+          return `<tr>
+            <td class="small">${(r.evaluated_at || "").slice(11, 19)}</td>
+            <td class="${gradeTone(r.grade)}">${r.grade || "-"}</td>
+            <td><strong>${r.total_score}/${r.max_score}</strong> <span class="small">(${fmt(r.score_pct, 1)}%)</span></td>
+            <td>${r.decision}</td>
+            <td>${r.strike}</td>
+            <td class="small">${r.writer_contract || "-"}</td>
+            <td class="${dimPass(d, "key_area")}">${(d.key_area || {}).score || 0}</td>
+            <td class="${dimPass(d, "oi_velocity")}">${(d.oi_sustained || {}).score || 0}+${(d.oi_velocity || {}).score || 0}</td>
+            <td class="${dimPass(d, "volume_confirm")}">${(d.volume_confirm || {}).score || 0}</td>
+            <td class="${dimPass(d, "spot_confirm")}">${(d.spot_confirm || {}).score || 0}</td>
+            <td class="${dimPass(d, "commission")}">${(d.commission || {}).score || 0}</td>
+            <td class="${r.paper_eligible ? "good" : "warn"}">${r.paper_eligible ? "YES" : "NO"}</td>
+            <td class="${futTone((r.futures_alignment || {}).alignment)}">${(r.futures_alignment || {}).alignment || "-"}</td>
+            <td class="info">+${(r.framework_bonus || {}).bonus || 0}</td>
+            <td class="small ${blockers.length ? "bad" : "good"}">${blockers.join(", ") || "—"}</td>
+          </tr>`;
+        }).join("") : `<tr><td colspan="15" class="small">No writer alerts to score yet. Min paper score: ${minScore}/100.</td></tr>`;
+      }
+      function renderJournalStatus(data) {
+        const js = data.journal_summary || {};
+        const files = js.files || {};
+        const row = (label, key) => {
+          const f = files[key] || {};
+          const n = f.lines != null ? f.lines : 0;
+          return `<div class="row"><span class="label">${label}</span><span class="small">${n} rows · <code>${f.path || "-"}</code></span></div>`;
+        };
+        const legacy = js.legacy_paper_trades || {};
+        document.getElementById("journalStatus").innerHTML = `
+          <div class="row"><span class="label">Desk journals (${js.date || "today"})</span><span class="info">All trades & candidates archived for review</span></div>
+          ${row("Paper trades", "paper_trades")}
+          ${row("Signal candidates", "signal_candidates")}
+          ${row("Writer alerts", "alerts")}
+          ${row("Playbook", "playbook")}
+          <div class="row"><span class="label">Legacy paper log</span><span class="small">${legacy.lines || 0} rows · <code>${legacy.path || "-"}</code></span></div>
+        `;
+      }
+      function renderSignals(data) {
+        const rows = data.signals || [];
+        const openRows = rows.filter(s => s.status === "OPEN");
+        const openBanner = openRows.length ? openRows.map(s => {
+          const oc = s.oi_conviction || {};
+          return `<div class="small ${oiConvTone(oc.level)}" style="margin-bottom:6px;padding:6px;border:1px solid #334155;border-radius:6px">
+            <strong>OPEN ${s.decision} @ ${s.strike}</strong> — OI conviction <strong>${oc.level || "PENDING"}</strong>
+            · PE ${fmt(oc.pe_oi_5m_pct)}% / 15m ${fmt(oc.pe_oi_15m_pct)}% · CE ${fmt(oc.ce_oi_5m_pct)}% / 15m ${fmt(oc.ce_oi_15m_pct)}% · spot 5m ${fmt(oc.spot_5m_delta)}
+            · ${oc.read || "Checking velocity..."}
+          </div>`;
+        }).join("") : "";
+        document.getElementById("signals").innerHTML = (openBanner ? openBanner : "") + (rows.length ? rows.map(s => {
+          const oc = s.oi_conviction || {};
+          return `
+          <tr>
+            <td>${s.id}</td>
+            <td><span class="pill">${s.status}</span></td>
+            <td>${s.generated_at}</td>
+            <td>${s.decision}</td>
+            <td>${s.strike}</td>
+            <td>${s.entry_contract}</td>
+            <td>${fmt(s.entry_price)}</td>
+            <td>${fmt(s.current_price)}</td>
+            <td>${fmt(s.stop_price)}</td>
+            <td>${fmt(s.target_price)}</td>
+            <td class="${cls(s.pnl_pct)}">${fmt(s.pnl_pct)}%</td>
+            <td class="${cls(s.pnl_net_rupees)}">${fmt(s.pnl_net_rupees, 0)}</td>
+            <td>${fmt((s.commission || {}).round_trip_at_entry_rupees, 0)}</td>
+            <td>${(s.commission || {}).conviction_pass ? "PASS" : "FAIL"}</td>
+            <td class="${oiConvTone(oc.level)}">${oc.level || (s.status === "OPEN" ? "..." : "-")}</td>
+            <td class="small">${oc.read || "-"}</td>
+            <td>${s.exit_reason || "-"}</td>
+            <td>${s.confluence_grade || "-"} ${s.confluence_score != null ? `<span class="small">(${s.confluence_score})</span>` : ""}</td>
+            <td>${s.thesis}</td>
+          </tr>`;
+        }).join("") : `<tr><td colspan="19" class="small">No paper entries yet — see confluence scoreboard above. Paper opens when score ≥ ${(data.signal_rules || {}).confluence_min_score || 65} and no blockers.</td></tr>`);
+        const rejected = data.rejected_signals || [];
+        if (rejected.length) {
+          document.getElementById("signals").innerHTML +=
+            `<tr><td colspan="19" class="small warn">Legacy rejected buffer: ${rejected.length}</td></tr>`;
+        }
+      }
+      function renderDepth(data) {
+        const v5delta = (row) => Math.abs(Number(((row || {}).velocity_5m || {}).delta || 0));
+        const rows = (data.rows || []).slice().sort((a, b) => v5delta(b) - v5delta(a));
+        document.getElementById("depth").innerHTML = rows.map(r => `
+          <tr>
+            <td class="${r.option_type === "CE" ? "ce" : "pe"}">${r.tradingsymbol}</td>
+            <td>${fmt(r.last_price)}</td>
+            <td>${fmt(r.oi, 0)}</td>
+            <td>${vel(r.velocity_5m)}</td>
+            <td>${vel(r.velocity_15m)}</td>
+            <td>${fmt(r.depth_buy.total_qty, 0)} / ${fmt(r.depth_buy.orders, 0)}</td>
+            <td>${fmt(r.depth_sell.total_qty, 0)} / ${fmt(r.depth_sell.orders, 0)}</td>
+            <td>${fmt(r.depth_sell.avg_qty_per_order)}</td>
+            <td>${fmt(r.last_quantity, 0)}</td>
+          </tr>
+        `).join("");
+      }
+      let oiPriceChart = null;
+      let spotChart = null;
+      let chartSelectReady = false;
+      const behaviorColors = {
+        WRITER_ADD: "#22c55e",
+        OI_UNCONFIRMED: "#f97316",
+        SIGNAL_ENTRY: "#a855f7",
+        SIGNAL_REJECTED: "#6b7280",
+      };
+      function buildVerticalMarkers(markers, prefix) {
+        const annotations = {};
+        (markers || []).forEach((marker, index) => {
+          annotations[`${prefix}_${index}`] = {
+            type: "line",
+            xMin: marker.time,
+            xMax: marker.time,
+            borderColor: marker.color || behaviorColors[marker.kind] || "#e5e7eb",
+            borderWidth: marker.kind === "SIGNAL_ENTRY" ? 2.5 : 1.5,
+            borderDash: marker.kind === "SIGNAL_REJECTED" ? [5, 4] : [],
+            label: {
+              display: true,
+              content: marker.short_label || marker.kind,
+              rotation: -90,
+              position: "start",
+              backgroundColor: "rgba(15,18,24,0.85)",
+              color: marker.color || behaviorColors[marker.kind] || "#e5e7eb",
+              font: { size: 10 },
+              padding: 4,
+            },
+          };
+        });
+        return annotations;
+      }
+      function spotYRange(series, spot, serverRange) {
+        if (serverRange && serverRange.min > 0 && serverRange.max > serverRange.min) {
+          return serverRange;
+        }
+        const prices = (series || []).map((p) => p.price).filter((p) => p > 15000);
+        const anchor = spot > 0 ? spot : (prices.length ? prices[prices.length - 1] : 0);
+        if (!prices.length && anchor > 0) {
+          const pad = Math.max(60, anchor * 0.004);
+          return { min: anchor - pad, max: anchor + pad };
+        }
+        if (!prices.length) return { min: undefined, max: undefined };
+        const lo = Math.min(...prices, anchor || Infinity);
+        const hi = Math.max(...prices, anchor || -Infinity);
+        const span = Math.max(hi - lo, 1);
+        const pad = Math.max(45, span * 0.25, (anchor || lo) * 0.003);
+        return { min: lo - pad, max: hi + pad };
+      }
+      function filterSpotLevelAnnotations(levels, yRange) {
+        if (!yRange || yRange.min == null || yRange.max == null) {
+          return buildSpotLevelAnnotations(levels);
+        }
+        const pad = (yRange.max - yRange.min) * 0.05;
+        const lo = yRange.min - pad;
+        const hi = yRange.max + pad;
+        const near = (levels || []).filter((level) => level.price >= lo && level.price <= hi);
+        return buildSpotLevelAnnotations(near);
+      }
+      function buildSpotLevelAnnotations(levels) {
+        const annotations = {};
+        (levels || []).forEach((level, index) => {
+          annotations[`spot_level_${index}`] = {
+            type: "line",
+            yMin: level.price,
+            yMax: level.price,
+            borderColor: level.color,
+            borderWidth: 1,
+            borderDash: [6, 4],
+            label: {
+              display: true,
+              content: `${level.label} ${fmt(level.price)}`,
+              position: "end",
+              backgroundColor: "rgba(15,18,24,0.85)",
+              color: level.color,
+              font: { size: 10 },
+              padding: 4,
+            },
+          };
+        });
+        return annotations;
+      }
+      function renderBehaviorLegend(chart) {
+        const legend = chart.behavior_legend || [];
+        const active = chart.active_behaviors || [];
+        const legendHtml = legend.map((item) =>
+          `<span><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:${item.color};margin-right:4px"></span>${item.label}</span>`
+        ).join("");
+        const activeHtml = active.length
+          ? `<span class="warn">LIVE: ${active.map((a) => `${a.option_type} ${a.direction} — ${(a.key_area_reasons || []).join(", ")}`).join(" | ")}</span>`
+          : `<span class="muted">No active writer-add on this contract right now</span>`;
+        document.getElementById("chartBehaviorLegend").innerHTML = legendHtml + activeHtml;
+      }
+      function upsertChart(chartRef, canvasId, config) {
+        if (typeof Chart === "undefined") return chartRef;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return chartRef;
+        if (chartRef) {
+          chartRef.data.labels = config.data.labels;
+          chartRef.data.datasets = config.data.datasets;
+          chartRef.options = config.options;
+          chartRef.update("none");
+          return chartRef;
+        }
+        return new Chart(canvas.getContext("2d"), config);
+      }
+      async function renderCharts() {
+        if (typeof Chart === "undefined") {
+          document.getElementById("chartMeta").textContent = "Charts unavailable — Chart.js CDN blocked. Tables above still update live.";
+          return;
+        }
+        const sel = document.getElementById("chartStrike");
+        const strike = sel ? sel.value : "";
+        const url = "/api/chart" + (strike ? ("?strike=" + encodeURIComponent(strike)) : "");
+        const resp = await fetch(url);
+        const chart = await resp.json();
+        if (sel && chart.available_strikes) {
+          if (!chartSelectReady) {
+            sel.innerHTML = "";
+            chart.available_strikes.forEach((row) => {
+              const opt = document.createElement("option");
+              opt.value = row.strike;
+              opt.textContent = `${row.strike} | CE ${fmt(row.ce_ltp)} OI ${fmt(row.ce_oi, 0)} | PE ${fmt(row.pe_ltp)} OI ${fmt(row.pe_oi, 0)}`;
+              sel.appendChild(opt);
+            });
+            sel.onchange = () => renderCharts();
+            chartSelectReady = true;
+          }
+          if (chart.strike) sel.value = String(chart.strike);
+        }
+        const pairedSeries = chart.paired_series || chart.option_series || [];
+        const spotSeries = chart.spot_series || [];
+        const spotY = spotYRange(spotSeries, chart.spot, chart.spot_y_range);
+        const labels = pairedSeries.map((p) => p.time);
+        const behaviorMarkers = chart.behavior_markers || [];
+        const spotLevels = chart.spot_levels || [];
+        const spotMarkers = chart.spot_markers || [];
+        oiPriceChart = upsertChart(oiPriceChart, "oiPriceChart", {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              {
+                label: `CE Premium (${chart.strike || "-"})`,
+                data: pairedSeries.map((p) => p.ce_price),
+                borderColor: "#60a5fa",
+                backgroundColor: "rgba(96,165,250,0.06)",
+                yAxisID: "y",
+                tension: 0.15,
+                pointRadius: 0,
+                borderWidth: 2,
+              },
+              {
+                label: `PE Premium (${chart.strike || "-"})`,
+                data: pairedSeries.map((p) => p.pe_price),
+                borderColor: "#fb923c",
+                backgroundColor: "rgba(251,146,60,0.06)",
+                yAxisID: "y",
+                tension: 0.15,
+                pointRadius: 0,
+                borderWidth: 2,
+              },
+              {
+                label: "CE Open Interest",
+                data: pairedSeries.map((p) => p.ce_oi),
+                borderColor: "#facc15",
+                backgroundColor: "rgba(250,204,21,0.04)",
+                yAxisID: "y1",
+                tension: 0.15,
+                pointRadius: 0,
+                borderWidth: 2,
+                borderDash: [4, 3],
+              },
+              {
+                label: "PE Open Interest",
+                data: pairedSeries.map((p) => p.pe_oi),
+                borderColor: "#f87171",
+                backgroundColor: "rgba(248,113,113,0.04)",
+                yAxisID: "y1",
+                tension: 0.15,
+                pointRadius: 0,
+                borderWidth: 2,
+                borderDash: [4, 3],
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { mode: "index", intersect: false },
+            scales: {
+              x: { ticks: { color: "#9ca3af", maxTicksLimit: 10 } },
+              y: {
+                type: "linear",
+                position: "left",
+                ticks: { color: "#93c5fd" },
+                title: { display: true, text: "Premium ₹ (CE blue · PE orange)", color: "#93c5fd" },
+              },
+              y1: {
+                type: "linear",
+                position: "right",
+                ticks: { color: "#fcd34d", callback: (v) => fmt(v, 0) },
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: "OI (CE yellow · PE red)", color: "#fcd34d" },
+              },
+            },
+            plugins: {
+              legend: { labels: { color: "#e5e7eb" } },
+              annotation: { annotations: buildVerticalMarkers(behaviorMarkers, "beh") },
+            },
+          },
+        });
+        spotChart = upsertChart(spotChart, "spotChart", {
+          type: "line",
+          data: {
+            labels: spotSeries.map((p) => p.time),
+            datasets: [
+              {
+                label: "NIFTY Spot",
+                data: spotSeries.map((p) => p.price),
+                borderColor: "#34d399",
+                backgroundColor: "rgba(52,211,153,0.08)",
+                tension: 0.15,
+                pointRadius: 0,
+                borderWidth: 2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+              x: { ticks: { color: "#9ca3af", maxTicksLimit: 10 } },
+              y: {
+                ticks: { color: "#34d399" },
+                title: { display: true, text: "Spot", color: "#34d399" },
+                min: spotY.min,
+                max: spotY.max,
+                grace: "0%",
+              },
+            },
+            plugins: {
+              legend: { labels: { color: "#e5e7eb" } },
+              annotation: {
+                annotations: {
+                  ...filterSpotLevelAnnotations(spotLevels, spotY),
+                  ...buildVerticalMarkers(spotMarkers, "spot_beh"),
+                },
+              },
+            },
+          },
+        });
+        renderBehaviorLegend(chart);
+        const last = pairedSeries.length ? pairedSeries[pairedSeries.length - 1] : {};
+        const markerCount = behaviorMarkers.length;
+        document.getElementById("chartMeta").textContent =
+          `Strike ${chart.strike || "-"} | CE ${fmt((chart.ce_snapshot || {}).ltp)} OI ${fmt((chart.ce_snapshot || {}).oi, 0)} | PE ${fmt((chart.pe_snapshot || {}).ltp)} OI ${fmt((chart.pe_snapshot || {}).oi, 0)} | pts ${pairedSeries.length} | spot ${fmt(chart.spot)} | Y ${fmt(spotY.min)}–${fmt(spotY.max)} | flags ${markerCount}`;
+      }
+      function safeRender(name, fn, data) {
+        try {
+          fn(data);
+        } catch (err) {
+          console.error(name + " failed:", err);
+        }
+      }
+      function updateHeartbeat(data, ok, errMsg) {
+        const statusEl = document.getElementById("heartbeatStatus");
+        const detailEl = document.getElementById("heartbeatDetail");
+        if (!ok) {
+          statusEl.className = "bad";
+          statusEl.textContent = "OFFLINE";
+          detailEl.innerHTML = `${errMsg || "Cannot reach dashboard API"} — open <a href="/api/ping" style="color:#60a5fa">/api/ping</a> in a new tab to test. Restart: <code>python nifty_oi_velocity_dashboard.py --host 127.0.0.1 --port 8010</code>`;
+          return;
+        }
+        const rows = (data.rows || []).length;
+        const live = data.stream_alive && data.status === "RUNNING" && rows > 0;
+        statusEl.className = live ? "good" : "warn";
+        statusEl.textContent = live ? "LIVE DATA OK" : (data.status || "WAITING");
+        detailEl.textContent =
+          `Spot ${fmt(data.spot)} · ${rows} contracts · ${(data.paired_rows || []).length} strike pairs · last tick ${data.last_tick_at || "never"} · refreshed ${new Date().toLocaleTimeString("en-IN")}`;
+      }
+      async function fetchState(timeoutMs = 12000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const resp = await fetch("/api/state", { signal: controller.signal, cache: "no-store" });
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          return await resp.json();
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      async function refresh() {
+        try {
+        // Fast ping first so heartbeat never stays on "Checking..." if /api/state is slow
+        try {
+          const pingResp = await fetch("/api/ping", { cache: "no-store" });
+          if (pingResp.ok) {
+            const ping = await pingResp.json();
+            updateHeartbeat({ ...ping, rows: ping.instrument_count ? new Array(ping.instrument_count) : [] }, true);
+          }
+        } catch (_pingErr) {
+          // full state fetch below will surface the real error
+        }
+        const data = await fetchState();
+        updateHeartbeat(data, true);
+        const rules = data.signal_rules || {};
+        const orbTag = rules.orb_no_trade_active
+          ? ` | ⏸ ${rules.is_expiry_day ? "EXPIRY WATCH until 9:45" : "ORB WATCH until 9:30"}`
+          : "";
+        const streamTag = data.stream_alive
+          ? " | Kite LIVE"
+          : ` | <span class="bad">Kite STALE${data.tick_age_sec != null ? " " + data.tick_age_sec + "s" : ""} — refresh page or restart dashboard</span>`;
+        const banner = document.getElementById("streamBanner");
+        if (data.status === "SETUP_REQUIRED") {
+          banner.style.display = "block";
+          banner.innerHTML = `<strong>No live data — Kite login required.</strong> ${data.error || ""} Open <a href="/kite/login" style="color:#60a5fa">/kite/login</a> then hard-refresh (Ctrl+F5).`;
+        } else if (data.status === "ERROR" || data.status === "CLOSED") {
+          banner.style.display = "block";
+          banner.innerHTML = `<strong>Stream ${data.status}.</strong> ${data.error || "Restart dashboard: python nifty_oi_velocity_dashboard.py --host 127.0.0.1 --port 8010"}`;
+        } else if (!data.stream_alive) {
+          banner.style.display = "block";
+          banner.innerHTML = `<strong>Kite ticks stopped.</strong> Last tick ${data.last_tick_at || "never"}. Hard-refresh browser; if still stale, restart dashboard.`;
+        } else if (!(data.rows || []).length) {
+          banner.style.display = "block";
+          banner.innerHTML = `<strong>Connected but no option rows yet.</strong> Wait 10–20s after login for chain subscription.`;
+        } else {
+          banner.style.display = "none";
+        }
+        document.getElementById("meta").innerHTML =
+          `Server ${data.server_time} | Status ${data.status}${streamTag} | Rows ${(data.rows || []).length} | Started ${data.started_at} | Spot ${fmt(data.spot)} | Open ${fmt((data.levels || {}).open)} | Day H/L ${fmt((data.levels || {}).day_high)} / ${fmt((data.levels || {}).day_low)} | ORB ${fmt((data.levels || {}).orb_high)} / ${fmt((data.levels || {}).orb_low)}${orbTag} | Auto-refresh 2s`;
+        safeRender("principles", renderPrinciples, data);
+        safeRender("summary", renderSummary, data);
+        safeRender("morningContext", renderMorningContext, data);
+        safeRender("keyLevels", renderKeyLevels, data);
+        safeRender("playbook", renderPlaybook, data);
+        safeRender("sessions", renderSessions, data);
+        safeRender("technicals", renderTechnicals, data);
+        safeRender("gift", renderGift, data);
+        safeRender("futuresLayer", renderFuturesLayer, data);
+        safeRender("optionsAnalytics", renderOptionsAnalytics, data);
+        safeRender("gamma", renderGamma, data);
+        safeRender("abnormal", renderAbnormal, data);
+        safeRender("signalCandidates", renderSignalCandidates, data);
+        safeRender("journalStatus", renderJournalStatus, data);
+        safeRender("signals", renderSignals, data);
+        safeRender("pairs", renderPairs, data);
+        safeRender("depth", renderDepth, data);
+        renderCharts().catch((err) => console.error("chart refresh failed:", err));
+        } catch (err) {
+          console.error("dashboard refresh failed:", err);
+          updateHeartbeat({}, false, String(err));
+          document.getElementById("meta").innerHTML = `<span class="bad">Refresh failed: ${err}. Check <a href="/api/ping" style="color:#60a5fa">/api/ping</a> or restart dashboard on port 8010.</span>`;
+        }
+      }
+      refresh();
+      setInterval(refresh, 2000);
+    </script>
+  </body>
+</html>

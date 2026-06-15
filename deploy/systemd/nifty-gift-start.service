@@ -1,0 +1,6 @@
+[Unit]
+Description=Start nifty-gift.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start nifty-gift.service

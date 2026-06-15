@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop nifty-gift.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl stop nifty-gift.service

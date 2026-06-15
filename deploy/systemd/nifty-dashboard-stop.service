@@ -1,0 +1,6 @@
+[Unit]
+Description=Stop nifty-dashboard.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl stop nifty-dashboard.service

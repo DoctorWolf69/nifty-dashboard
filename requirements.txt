@@ -1,0 +1,11 @@
+# NIFTY desk — runtime dependencies only (no crypto/AI/DB stack)
+kiteconnect
+fastapi>=0.110.0
+uvicorn>=0.27.0
+python-dotenv>=1.0.0
+scipy>=1.12.0
+pandas>=2.2.0
+requests>=2.31.0
+tzdata                  # zoneinfo database on minimal Linux images
+yfinance                # optional fallback for key levels / global movers
+# finstack              # optional: richer macro brief if you have access
