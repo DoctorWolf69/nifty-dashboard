@@ -248,6 +248,24 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
             }
         )
 
+    def _render_report(date_str: str) -> str:
+        from datetime import datetime as _dt
+        from nifty.eod.session_report import render_report_html
+
+        trade_date = _dt.strptime(date_str, "%Y-%m-%d").date() if date_str else date.today()
+        return render_report_html(trade_date)
+
+    @app.get("/report", response_class=HTMLResponse)
+    async def report_today() -> str:
+        return await asyncio.to_thread(_render_report, "")
+
+    @app.get("/report/{date_str}", response_class=HTMLResponse)
+    async def report_for_date(date_str: str) -> str:
+        try:
+            return await asyncio.to_thread(_render_report, date_str)
+        except ValueError:
+            return "<h1>Bad date</h1><p>Use /report/YYYY-MM-DD</p>"
+
     @app.get("/kite/login")
     async def kite_login() -> JSONResponse:
         api_key, api_secret, access_token = env_credentials()
