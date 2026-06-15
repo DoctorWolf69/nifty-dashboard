@@ -32,7 +32,8 @@ systemctl enable --now \
   nifty-eod-cm.timer \
   nifty-eod-fo.timer \
   nifty-eod-retry.timer \
-  nifty-eod-filing.timer
+  nifty-eod-filing.timer \
+  nifty-email-report.timer
 
 echo
 echo "Done. Scheduled timers:"

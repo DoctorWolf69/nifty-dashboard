@@ -1,0 +1,10 @@
+[Unit]
+Description=Regenerate + email EOD report 20:15 IST
+
+[Timer]
+OnCalendar=Mon..Fri 20:15 Asia/Kolkata
+Persistent=false
+Unit=nifty-job@email-report.service
+
+[Install]
+WantedBy=timers.target
