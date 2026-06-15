@@ -9,6 +9,7 @@ timer (see deploy/systemd/). Usage:
     python -m nifty.jobs eod --retry-missing
     python -m nifty.jobs eod-filing         # 19:35  FII/DII filing for tomorrow
     python -m nifty.jobs session-report     # 15:40  intraday EOD report
+    python -m nifty.jobs email-report       # 20:15  regenerate + email report zip
 
 By default a job no-ops on weekends / NSE trading holidays. Pass --force to run
 regardless (useful for manual backfills).
@@ -124,12 +125,19 @@ def cmd_session_report(_args: argparse.Namespace) -> None:
     _delegate(session_report.main, ["session_report"])
 
 
+def cmd_email_report(_args: argparse.Namespace) -> None:
+    from nifty.eod import email_report
+
+    _delegate(email_report.main, ["email_report"])
+
+
 _COMMANDS = {
     "morning": cmd_morning,
     "premarket": cmd_premarket,
     "eod": cmd_eod,
     "eod-filing": cmd_eod_filing,
     "session-report": cmd_session_report,
+    "email-report": cmd_email_report,
 }
 
 
