@@ -100,6 +100,9 @@ from nifty.core.expiry import (
     no_trade_seconds_remaining,
     no_trade_window_label,
 )
+def nearest(value: float, step: int) -> int:
+    return int(round(value / step) * step)
+
 GAP_PLAYBOOK_THRESHOLD = 30  # points vs prev close
 PLAYBOOK_VELOCITY_ADD_PCT = 2.0
 PLAYBOOK_VELOCITY_UNWIND_PCT = -2.0

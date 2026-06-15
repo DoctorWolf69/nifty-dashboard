@@ -55,8 +55,6 @@ def load_kite() -> Optional[KiteConnect]:
     return make_kite(api_key, access_token)
 
 
-def nearest(value: float, step: int) -> int:
-    return int(round(value / step) * step)
 
 
 def parse_expiry(value: Any) -> date:
