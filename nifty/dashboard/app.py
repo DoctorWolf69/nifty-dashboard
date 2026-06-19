@@ -342,10 +342,21 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
             save_env_value("KITE_ACCESS_TOKEN", access_token)
             spot, expiry, instruments = connect_market_stream(state, args, api_key, access_token)
             return (
+                "<!DOCTYPE html><html lang=\"en\"><head>"
+                "<meta charset=\"utf-8\" />"
+                "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />"
+                "<meta http-equiv=\"refresh\" content=\"2; url=/\" />"
+                "<title>Kite login successful</title>"
+                "<style>body{font-family:Segoe UI,system-ui,sans-serif;background:#0f1117;color:#e5e7eb;"
+                "margin:0;padding:48px 24px;text-align:center;line-height:1.5}"
+                "a{color:#60a5fa}</style></head><body>"
                 "<h2>Kite login successful</h2>"
-                "<p>Live stream started. Return to the dashboard tab.</p>"
-                f"<p>NIFTY spot: {spot:.2f}, expiry: {expiry}, contracts: {len(instruments)}</p>"
-                "<p>The generated access token was saved to .env for automatic restart today.</p>"
+                "<p>Live stream started — taking you to the dashboard…</p>"
+                f"<p>NIFTY spot: {spot:.2f} · expiry: {expiry} · contracts: {len(instruments)}</p>"
+                "<p>Token saved to .env for automatic restart today.</p>"
+                "<p><a href=\"/\">Open the dashboard now</a></p>"
+                "<script>setTimeout(function(){window.location.href='/';},2000);</script>"
+                "</body></html>"
             )
         except Exception as exc:
             state.set_status("ERROR", f"Kite login failed: {exc}")
