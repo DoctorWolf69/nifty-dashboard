@@ -267,7 +267,7 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
             return "<h1>Bad date</h1><p>Use /report/YYYY-MM-DD</p>"
 
     @app.get("/kite/login")
-    async def kite_login() -> JSONResponse:
+    async def kite_login(format: str = Query(default="")):
         api_key, api_secret, access_token = env_credentials()
         if not api_key:
             return JSONResponse(
@@ -278,14 +278,47 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
                 status_code=400,
             )
         kite = KiteConnect(api_key=api_key)
-        return JSONResponse(
-            {
-                "ok": True,
-                "login_url": kite.login_url(),
-                "has_api_secret": bool(api_secret),
-                "has_access_token": bool(access_token),
-                "note": "Open login_url. After login, Zerodha redirects to /kite/callback with request_token.",
-            }
+        login_url = kite.login_url()
+        if format == "json":
+            return JSONResponse(
+                {
+                    "ok": True,
+                    "login_url": login_url,
+                    "has_api_secret": bool(api_secret),
+                    "has_access_token": bool(access_token),
+                    "note": "Open login_url. After login, Zerodha redirects to /kite/callback with request_token.",
+                }
+            )
+        # Default: auto-bounce to Zerodha, with a manual button + copy fallback
+        # (covers mobile browsers that block the JS redirect).
+        safe_url = login_url.replace("'", "%27")
+        return HTMLResponse(
+            f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="0; url={safe_url}" />
+  <title>Kite login — redirecting…</title>
+  <style>
+    body {{ font-family: Segoe UI, system-ui, sans-serif; background:#0f1117; color:#e5e7eb; margin:0; padding:48px 24px; text-align:center; }}
+    a.btn {{ display:inline-block; background:#387ed1; color:#fff; text-decoration:none; padding:14px 22px; border-radius:8px; font-size:1.05rem; font-weight:600; margin-top:8px; }}
+    button {{ background:#181b24; color:#e5e7eb; border:1px solid #2a2f3a; border-radius:8px; padding:10px 16px; font-size:0.9rem; cursor:pointer; margin-top:14px; }}
+    .muted {{ color:#9ca3af; font-size:0.85rem; margin-top:18px; word-break:break-all; }}
+  </style>
+</head>
+<body>
+  <h2>Opening Zerodha login…</h2>
+  <p class="muted">If it doesn't open automatically, tap the button:</p>
+  <p><a class="btn" href="{safe_url}">Login with Zerodha</a></p>
+  <button onclick="navigator.clipboard.writeText('{safe_url}').then(()=>{{this.textContent='Copied!'}})">Copy login URL</button>
+  <p class="muted">{login_url}</p>
+  <script>
+    // Belt-and-suspenders: also push the redirect from JS.
+    setTimeout(function(){{ window.location.href = '{safe_url}'; }}, 150);
+  </script>
+</body>
+</html>"""
         )
 
     @app.get("/kite/callback", response_class=HTMLResponse)
