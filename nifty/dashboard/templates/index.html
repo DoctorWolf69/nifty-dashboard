@@ -1190,7 +1190,7 @@
           <select id="replayDay" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2f3a;border-radius:6px;padding:6px"></select>
           <button id="replayPlay" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2f3a;border-radius:6px;padding:6px 12px;cursor:pointer">▶ Play</button>
           <select id="replaySpeed" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2f3a;border-radius:6px;padding:6px">
-            <option value="2">2×</option><option value="5" selected>5×</option><option value="10">10×</option><option value="20">20×</option>
+            <option value="1">1×</option><option value="2">2×</option><option value="5" selected>5×</option><option value="10">10×</option><option value="20">20×</option>
           </select>
           <input id="replaySlider" type="range" min="0" max="0" value="0" style="flex:1;min-width:220px">
           <span id="replayClock" style="font-family:Consolas,monospace;color:#e5e7eb;min-width:70px">--:--:--</span>
@@ -1203,6 +1203,9 @@
         daySel.innerHTML = days.map((d) => `<option value="${d}">${d}</option>`).join("");
         document.getElementById("replaySlider").addEventListener("input", (e) => replaySeekIdx(parseInt(e.target.value, 10)));
         document.getElementById("replayPlay").addEventListener("click", replayTogglePlay);
+        document.getElementById("replaySpeed").addEventListener("change", () => {
+          if (replayPlaying) { replayTogglePlay(); replayTogglePlay(); }   // restart loop at new speed
+        });
         daySel.addEventListener("change", (e) => replayLoadDay(e.target.value));
         document.getElementById("replayBacktest").addEventListener("click", async () => {
           if (!replayDay) return;
