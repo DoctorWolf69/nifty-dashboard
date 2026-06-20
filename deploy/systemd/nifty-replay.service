@@ -1,0 +1,16 @@
+[Unit]
+Description=NIFTY Replay + Backtest (always-on)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__APPDIR__
+Environment=TZ=Asia/Kolkata
+ExecStart=__APPDIR__/.venv/bin/python -m nifty.replay --host 127.0.0.1 --port 8090
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

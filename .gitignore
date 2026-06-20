@@ -15,6 +15,7 @@ env/
 data/live_nifty_oi/
 data/gift_nifty/
 data/nse_eod/
+data/replay/
 journal/
 !journal/.gitkeep
 !data/.gitkeep

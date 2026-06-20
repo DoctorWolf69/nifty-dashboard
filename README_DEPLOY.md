@@ -110,6 +110,33 @@ REPORT_PUBLIC_URL=https://your-domain.example/reports
 If those are blank the 20:15 job just regenerates the files and skips the send (never errors).
 Test manually: `python -m nifty.jobs email-report --force` (`--no-send` to only rebuild files).
 
+## Replay + backtest
+
+An always-on service (`nifty-replay`, port 8090, nginx `/replay`) re-runs the **live engine over
+the archived tick days** so you can scrub a past session and backtest it.
+
+- **Replay slider:** open `https://your-domain.example/replay`, pick a day, drag the time slider (or
+  Play) — the whole dashboard re-renders the exact engine state (OI velocity, writer-adds, grades,
+  signals) as of that moment. Built by replaying the stored ticks through the same `OIVelocityState`
+  with a clock frozen to each tick's timestamp.
+- **Backtest report:** the "Run backtest" button (or `/api/replay/report?date=YYYY-MM-DD`) marks each
+  signal the engine generated against the **actual stored prices** — realized P&L plus
+  max-favorable/adverse excursion — rendered as the same TradingView-style report.
+
+How it performs: replaying a full day tick-by-tick is expensive (~100s feed + ~0.2s per evaluation),
+so each day is **precomputed once** into a cached frame timeline
+(`data/replay/timeline_{day}.json.gz`, full snapshots every 30s) — the **first open of a day takes a
+few minutes to build**, then scrubbing is instant. Replay never touches the live journal or tick
+SQLite (it writes to a throwaway dir).
+
+```bash
+# Pre-build a day's cache from the CLI (optional — the web UI builds on first open):
+python -m nifty.replay.backtest 2026-06-19            # build timeline + backtest report
+python -m nifty.replay --host 127.0.0.1 --port 8090   # run the service locally
+```
+
+The live OI+price chart is omitted in replay (all OI panels still populate from the frame data).
+
 ## How the context lights up (producer → file → consumer)
 
 The dashboard reads dated JSON artifacts the jobs write into `journal/`:

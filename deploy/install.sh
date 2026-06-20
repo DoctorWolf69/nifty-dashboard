@@ -35,6 +35,9 @@ systemctl enable --now \
   nifty-eod-filing.timer \
   nifty-email-report.timer
 
+# Always-on replay/backtest service (independent of market hours).
+systemctl enable --now nifty-replay.service
+
 echo
 echo "Done. Scheduled timers:"
 systemctl list-timers 'nifty-*' --no-pager || true
