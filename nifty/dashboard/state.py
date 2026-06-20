@@ -131,8 +131,11 @@ DESK_PRINCIPLES = {
 }
 
 
+from nifty.dashboard.clock import CLOCK
+
+
 def ist_now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return CLOCK.now_str()
 
 
 def as_float(value: Any, default: float = 0.0) -> float:
@@ -150,10 +153,10 @@ def as_int(value: Any, default: int = 0) -> int:
 
 
 def _is_expiry_day(state: "VelocityState") -> bool:
-    today = date.today().isoformat()
+    today = CLOCK.today().isoformat()
     if state.expiry and str(state.expiry)[:10] == today:
         return True
-    return is_expiry_session(trade_date=date.today())
+    return is_expiry_session(trade_date=CLOCK.today())
 
 
 def is_orb_no_trade_window(now: Optional[datetime] = None, *, is_expiry: bool = False) -> bool:
@@ -165,7 +168,7 @@ def orb_no_trade_seconds_remaining(now: Optional[datetime] = None, *, is_expiry:
 
 
 def is_late_session(now: Optional[datetime] = None) -> bool:
-    current = now or datetime.now()
+    current = now or CLOCK.now()
     cutoff_h, cutoff_m = LATE_SESSION_SIGNAL_CUTOFF
     return (current.hour, current.minute) >= (cutoff_h, cutoff_m)
 
@@ -333,7 +336,7 @@ class InstrumentState:
     history: Deque[TickPoint] = field(default_factory=lambda: deque(maxlen=1800))
 
     def update_from_tick(self, tick: Dict[str, Any]) -> None:
-        now = time.time()
+        now = CLOCK.time()
         self.last_price = as_float(tick.get("last_price"), self.last_price)
         self.oi = as_int(tick.get("oi"), self.oi)
         self.volume = as_int(tick.get("volume_traded"), self.volume)
@@ -349,7 +352,7 @@ class InstrumentState:
     def _point_at_or_before(self, seconds_back: int) -> Optional[TickPoint]:
         if not self.history:
             return None
-        cutoff = time.time() - seconds_back
+        cutoff = CLOCK.time() - seconds_back
         candidate: Optional[TickPoint] = None
         for point in self.history:
             if point.ts <= cutoff:
@@ -456,9 +459,17 @@ class InstrumentState:
 
 
 class OIVelocityState:
-    def __init__(self, data_store: Optional[LiveDataStore] = None) -> None:
+    def __init__(
+        self,
+        data_store: Optional[LiveDataStore] = None,
+        replay_dir: Optional[Path] = None,
+    ) -> None:
+        # replay_dir set => historical replay: journal + IV history are redirected
+        # to a throwaway dir and tick persistence is disabled, so the live journal
+        # and tick SQLite are never touched.
+        self.replay_dir = replay_dir
         self.lock = threading.RLock()
-        self.data_store = data_store
+        self.data_store = None if replay_dir is not None else data_store
         self.instruments: Dict[int, InstrumentState] = {}
         self.futures: Dict[int, InstrumentState] = {}
         self.futures_eod_context: Dict[str, Any] = {}
@@ -486,7 +497,9 @@ class OIVelocityState:
         self.signal_candidates: List[Dict[str, Any]] = []
         self.options_analytics: Dict[str, Any] = {}
         self._prev_net_dealer_delta: Optional[float] = None
-        self._iv_store = IVHistoryStore(DATA_DIR / "iv_history.jsonl")
+        self._iv_store = IVHistoryStore(
+            (replay_dir if replay_dir is not None else DATA_DIR) / "iv_history.jsonl"
+        )
         self._iv_store.load()
         self._last_options_analytics_journal = 0.0
         self.last_tick_at = ""
@@ -496,7 +509,10 @@ class OIVelocityState:
         self.behavior_events: Deque[Dict[str, Any]] = deque(maxlen=800)
         self._behavior_event_keys: Dict[str, float] = {}
         self.last_abnormal_alerts: List[Dict[str, Any]] = []
-        self.journal = NiftyJournalStore()
+        self.journal = NiftyJournalStore(replay_dir) if replay_dir is not None else NiftyJournalStore()
+        self._signal_journal_file = (
+            (replay_dir / "nifty_oi_signals.jsonl") if replay_dir is not None else SIGNAL_JOURNAL_FILE
+        )
         self._last_gamma_signal = "NONE"
         self._daily_level_labels: set[str] = set()
         self._last_session_journal_minute = ""
@@ -530,7 +546,7 @@ class OIVelocityState:
         decision: str = "",
         ts: Optional[float] = None,
     ) -> None:
-        event_ts = ts or time.time()
+        event_ts = ts or CLOCK.time()
         dedupe_key = f"{kind}:{contract}:{int(event_ts // 60)}"
         if dedupe_key in self._behavior_event_keys:
             return
@@ -566,7 +582,7 @@ class OIVelocityState:
         self.journal.append_behavior(self.behavior_events[-1])
 
     def _maybe_snapshot_daily_levels(self) -> None:
-        now = datetime.now()
+        now = CLOCK.now()
         clock = (now.hour, now.minute)
         labels: List[str] = []
         if (9, 30) <= clock <= (9, 31):
@@ -667,7 +683,7 @@ class OIVelocityState:
             "SIGNAL_ENTRY": {"color": "#a855f7", "chart": "option"},
             "SIGNAL_REJECTED": {"color": "#6b7280", "chart": "option"},
         }
-        cutoff_ts = time.time() - (max_points * 2)
+        cutoff_ts = CLOCK.time() - (max_points * 2)
         markers: List[Dict[str, Any]] = []
         for event in self.behavior_events:
             if event.get("contract") not in contracts:
@@ -923,7 +939,7 @@ class OIVelocityState:
                 )
             behavior_markers.sort(key=lambda row: row.get("ts") or 0)
             behavior_markers = behavior_markers[-40:]
-            cutoff_ts = time.time() - 720
+            cutoff_ts = CLOCK.time() - 720
             spot_markers = [
                 {
                     **event,
@@ -971,7 +987,7 @@ class OIVelocityState:
     def refresh_session_context(self, force: bool = False) -> None:
         if self._kite is None:
             return
-        now_ts = time.time()
+        now_ts = CLOCK.time()
         if not force and now_ts - self.session_context_updated_at < 900:
             return
         with self.lock:
@@ -987,7 +1003,7 @@ class OIVelocityState:
             self._restore_orb_levels()
 
     def _orb_snapshot_path(self) -> Path:
-        return DATA_DIR / f"orb_{date.today().isoformat()}.json"
+        return DATA_DIR / f"orb_{CLOCK.today().isoformat()}.json"
 
     def _persist_orb_snapshot(self) -> None:
         if self.orb_high <= 0 or self.orb_low <= 0:
@@ -1029,7 +1045,7 @@ class OIVelocityState:
         if self._kite is None:
             return False
         try:
-            today = date.today()
+            today = CLOCK.today()
             start = datetime.combine(today, dt_time(9, 15))
             end = datetime.combine(today, dt_time(9, 30, 59))
             candles = self._kite.historical_data(
@@ -1061,7 +1077,7 @@ class OIVelocityState:
         if self._load_orb_snapshot():
             return
         if self.data_store is not None:
-            hi, lo = self.data_store.query_orb_range(date.today())
+            hi, lo = self.data_store.query_orb_range(CLOCK.today())
             if hi and lo and hi > 0 and lo > 0:
                 with self.lock:
                     self.orb_high = hi
@@ -1105,15 +1121,15 @@ class OIVelocityState:
             self.spot = spot
             self.expiry = expiry
             if spot >= 15_000:
-                self.spot_history.append((time.time(), spot))
+                self.spot_history.append((CLOCK.time(), spot))
         self._load_signals_from_journal()
         self._backfill_paper_trade_journal()
 
     def _backfill_paper_trade_journal(self) -> None:
         """Ensure today's paper rows exist in dated journal (legacy file → daily archive)."""
-        if not SIGNAL_JOURNAL_FILE.exists():
+        if not self._signal_journal_file.exists():
             return
-        today = date.today().isoformat()
+        today = CLOCK.today().isoformat()
         dated_path = self.journal._dated_path("nifty_paper_trades")
         seen: set[str] = set()
         if dated_path.exists():
@@ -1126,7 +1142,7 @@ class OIVelocityState:
                 except json.JSONDecodeError:
                     continue
                 seen.add(self._paper_journal_fingerprint(row))
-        for raw in SIGNAL_JOURNAL_FILE.read_text(encoding="utf-8").splitlines():
+        for raw in self._signal_journal_file.read_text(encoding="utf-8").splitlines():
             raw = raw.strip()
             if not raw:
                 continue
@@ -1193,7 +1209,7 @@ class OIVelocityState:
                     self.day_high = as_float(ohlc.get("high"), self.day_high)
                     self.day_low = as_float(ohlc.get("low"), self.day_low)
                     self.prev_close = as_float(ohlc.get("close"), self.prev_close)
-                    now = time.time()
+                    now = CLOCK.time()
                     if self.spot >= 15_000:
                         self.spot_history.append((now, self.spot))
                     if self.data_store is not None:
@@ -1205,7 +1221,7 @@ class OIVelocityState:
                             self.day_low,
                             self.prev_close,
                         )
-                    today = datetime.now()
+                    today = CLOCK.now()
                     if today.hour == 9 and 15 <= today.minute <= 29:
                         self.orb_high = max(self.orb_high or self.spot, self.spot)
                         self.orb_low = min(self.orb_low or self.spot, self.spot)
@@ -1224,7 +1240,7 @@ class OIVelocityState:
             self.status = "RUNNING"
             self.error = None
             self.last_tick_at = ist_now()
-            self.last_tick_ts = time.time()
+            self.last_tick_ts = CLOCK.time()
         if self.data_store is not None:
             if db_spot is not None:
                 ts, ltp, open_price, high, low, prev_close = db_spot
@@ -1245,7 +1261,7 @@ class OIVelocityState:
             self.error = error
 
     def quick_status(self) -> Dict[str, Any]:
-        tick_age_sec = round(time.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
+        tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
         stream_alive = tick_age_sec is not None and tick_age_sec <= 20
         with self.lock:
             return {
@@ -1264,14 +1280,14 @@ class OIVelocityState:
     def _append_signal_journal(self, event: Dict[str, Any]) -> None:
         payload = dict(event)
         payload.setdefault("recorded_at", ist_now())
-        SIGNAL_JOURNAL_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with SIGNAL_JOURNAL_FILE.open("a", encoding="utf-8") as handle:
+        self._signal_journal_file.parent.mkdir(parents=True, exist_ok=True)
+        with self._signal_journal_file.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, default=str, separators=(",", ":")) + "\n")
         self.journal.append_paper_trade(payload)
 
     def _load_signals_from_journal(self) -> None:
         """Restore today's paper book from journal after dashboard restart."""
-        path = SIGNAL_JOURNAL_FILE
+        path = self._signal_journal_file
         if not path.exists():
             return
         states: Dict[int, Dict[str, Any]] = {}
@@ -1321,7 +1337,7 @@ class OIVelocityState:
                 try:
                     ts = datetime.strptime(generated, "%Y-%m-%d %H:%M:%S").timestamp()
                 except ValueError:
-                    ts = time.time()
+                    ts = CLOCK.time()
                 self.last_signal_ts_by_key[key] = ts
 
     def _row_by_strike_side(self, rows: List[Dict[str, Any]]) -> Dict[Tuple[int, str], Dict[str, Any]]:
@@ -1546,7 +1562,7 @@ class OIVelocityState:
         if not payload.get("error"):
             self._prev_net_dealer_delta = as_float(payload.get("net_dealer_delta"))
         self.options_analytics = payload
-        now_ts = time.time()
+        now_ts = CLOCK.time()
         if now_ts - self._last_options_analytics_journal >= 300:
             self._last_options_analytics_journal = now_ts
             summary = {k: v for k, v in payload.items() if k != "chain_rows"}
@@ -1571,7 +1587,7 @@ class OIVelocityState:
         rows_by_side = self._row_by_strike_side(rows)
         pairs_by_strike = {as_int(pair.get("strike")): pair for pair in paired_rows}
         spot_v5 = self._spot_velocity(300)
-        now_ts = time.time()
+        now_ts = CLOCK.time()
         scored: List[Dict[str, Any]] = []
 
         for alert in alerts:
@@ -1688,7 +1704,7 @@ class OIVelocityState:
         decision = str(best.get("decision"))
         entry_side = str(best.get("entry_side"))
         key = str(best.get("signal_key"))
-        now_ts = time.time()
+        now_ts = CLOCK.time()
         now = ist_now()
 
         if any(signal.get("status") == "OPEN" and signal.get("signal_key") == key for signal in self.signals):
@@ -1776,7 +1792,7 @@ class OIVelocityState:
         points = list(self.spot_history)
         if not points or self.spot <= 0:
             return {"delta": 0.0, "pct": 0.0}
-        cutoff = time.time() - seconds_back
+        cutoff = CLOCK.time() - seconds_back
         old_ltp = points[0][1]
         for ts, ltp in points:
             if ts <= cutoff:
@@ -2111,7 +2127,7 @@ class OIVelocityState:
             self.orb_high_reclaimed_at = ist_now()
         orb_high_reclaimed = bool(self.orb_high_reclaimed_at)
 
-        now = datetime.now()
+        now = CLOCK.now()
         is_expiry = _is_expiry_day(self)
         in_orb_watch = is_no_trade_window(now, is_expiry=is_expiry)
         in_930_window = (now.hour == 9 and now.minute >= 30) or (now.hour == 10 and now.minute <= 15)
@@ -2378,7 +2394,10 @@ class OIVelocityState:
             )
         return payload
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self, light: bool = False) -> Dict[str, Any]:
+        # light=True runs the full signal pipeline (writer-adds, OI conviction,
+        # playbook, signal generation) but skips Greeks, futures layer and payload
+        # construction — used by replay to evaluate on cadence cheaply.
         self._restore_orb_levels()
         self.refresh_session_context()
         self.refresh_morning_context()
@@ -2517,12 +2536,15 @@ class OIVelocityState:
             self._last_gamma_signal = active_gamma
             self.journal.append_gamma_state(gamma_state)
         self._update_open_signals(rows, paired_rows)
-        self._refresh_options_analytics(paired_rows)
+        if not light:
+            self._refresh_options_analytics(paired_rows)
         playbook = self._detect_intraday_playbook(rows, paired_rows, abnormal_alerts)
         self._maybe_generate_signals(abnormal_alerts, rows, paired_rows, playbook=playbook)
+        if light:
+            return {}
         is_expiry = _is_expiry_day(self)
 
-        tick_age_sec = round(time.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
+        tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
         stream_alive = tick_age_sec is not None and tick_age_sec <= 20
         spot_v5 = self._spot_velocity(300)
         futures_list = self._future_instrument_list()
