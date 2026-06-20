@@ -176,3 +176,179 @@ self-contained.
 - Trailing stops / partial profit-booking exit logic.
 - Full-option-chain archival (all strikes + IV/greeks) for richer future backtests.
 - Live OI+price chart inside replay; finer-than-30s backtest cadence.
+
+---
+
+# 11. Appendix — Dashboard panels: exact rules, thresholds & blockers
+
+Every panel below is driven by `OIVelocityState.snapshot()` in `dashboard/state.py`; the grader is in
+`analytics/confluence.py` and the cost gate in `core/commission.py`. Velocity windows are **1m = 60s,
+5m = 300s, 15m = 900s**, computed per contract from its tick history. All thresholds are the literal
+constants in code.
+
+## 11.1 "Top CE/PE Writer Adds" + "Abnormal Alerts" panel
+
+An option row is flagged as an **abnormal OI alert** only if **ALL** of these hold:
+
+| Gate | Condition | Constant |
+|------|-----------|----------|
+| Key area | row sits on a flagged level (see 11.2) | `key_area = True` |
+| Sustained | ≥ 3 one-minute buckets of history exist | `SUSTAINED_ADD_MINUTES = 3` |
+| Repeated add | ≥ 3 of the last minutes had **OI delta > 0** | `MIN_POSITIVE_MINUTE_ADDS = 3` |
+| Volume confirmed | ≥ 3 of those add-minutes also had **volume delta > 0** | `MIN_VOLUME_CONFIRMED_MINUTES = 3` |
+| Outlier (either) | **chain_outlier** OR **pct_outlier** | see below |
+
+- **chain_outlier** = `v5.delta ≥ max(200000, median_5m×3)` **OR** `v1.delta ≥ max(75000, median_1m×3)`
+  (median = median positive OI delta across the chain that tick).
+- **pct_outlier** = `v5.pct ≥ 8%` **OR** `v1.pct ≥ 4%`.
+
+**Direction label** (decides whether it counts as real writing):
+- **`WRITERS ADDING`** = price-confirmed: `(CE and spot ≤ strike)` or `(PE and spot ≥ strike)`.
+- **`OI ADDING - PRICE NOT CONFIRMED`** = OI up but the option is ITM/ambiguous → treated cautiously
+  (still scored, but fails the `writer_price` dimension → `WRITER_NOT_CONFIRMED` blocker).
+
+## 11.2 Key-area detection (`_key_area_reasons`)
+
+A strike is a "key area" if **any** reason matches (these also feed the `key_area` grader dimension):
+
+| Reason | Rule |
+|--------|------|
+| `near spot` | `|spot − strike| / spot ≤ 0.35%` (`KEY_AREA_DISTANCE_PCT`) |
+| `psychological 500 strike` / `round 100 strike` | strike % 500 == 0 / strike % 100 == 0 |
+| `top OI wall` | strike is in the **top-2 OI** strikes on its side (CE or PE) |
+| day high / low, open, prev close, ORB high / low | within **60 pts** of that level |
+| EMA/pivot/Camarilla/Fib labels | within the session technical-level tolerance |
+| morning key levels | within 60 pts of a `key_levels` flat level |
+
+## 11.3 PE/CE strike behavior (`_analyze_pe_strike_row`)
+
+Per strike, using 5m velocity and spot 5m delta (`add ≥ +2%`, `unwind ≤ −2%`, `spot flat = |Δ| ≤ 8 pts`):
+
+| Behavior | Condition | Read |
+|----------|-----------|------|
+| `PE_ADD_SPOT_UP` | PE adding **and** spot up | support confirmed (bullish) |
+| `PE_ADD_SPOT_FLAT` | PE adding, spot flat | writers stacking, needs follow-through |
+| `PE_ADD_SPOT_DOWN` | PE adding, spot down | divergence — support not working |
+| `PE_UNWIND` | PE OI ≤ −2% | support leaving (bearish) |
+| `CE_DOMINANT` | CE OI ≥ +2% | overhead pressure |
+| `QUIET` | none of the above | no footprint |
+
+## 11.4 Intraday Playbook panel (`_detect_intraday_playbook`)
+
+A gap-aware state machine. **ORB watch comes first** and hard-blocks entries:
+
+- **`ORB_WATCH`** (09:15–09:30) / **`EXPIRY_WATCH`** (09:15–09:45 on expiry) — watch only, no fresh entries.
+- Then by gap (`GAP_PLAYBOOK_THRESHOLD = 30 pts` vs prev close): **GAP_DOWN** branch resolves to one of
+  `GAP_WEAK · ORB_HOLD · PE_DIVERGENCE · PE_BUILD_930 · EXTENSION · PE_UNWIND · CE_PUSH ·
+  RECLAIM_FAILED · ORB_RECLAIMED` based on whether ORB low held, ORB high reclaimed, and PE/CE
+  writer behavior at support. **GAP_UP** → `GAP_UP`; no gap → `FLAT_OPEN`.
+- The panel also shows pass/warn/fail checks: ORB no-trade, gap context, ORB low held, ORB high
+  reclaim, 23100/23200 PE-vs-spot, 9:30 PE build, can-extend, PE unwind, CE push.
+
+## 11.5 Gamma Blast monitor (`_detect_gamma_blast`)
+
+Only strikes within **0.45%** of spot (`GAMMA_NEAR_SPOT_PCT`) are examined.
+
+- **`COMPRESSION`** = both CE and PE OI ≥ **1,000,000** (`GAMMA_HEAVY_OI_MIN`).
+- **`GAMMA_BLAST_UP_RISK`** = compression **and** `CE 5m delta ≤ −200,000` (`GAMMA_UNWIND_DELTA_MIN`) and
+  `PE delta ≥ 0` and `spot ≥ strike` (call writers covering above → squeeze up).
+- **`GAMMA_BLAST_DOWN_RISK`** = mirror (PE unwinding below spot).
+- **`EXPIRY_DECAY_UNWIND`** = both sides unwinding ≤ −200,000.
+
+## 11.6 Confluence Scoreboard panel (the grader)
+
+Every writer alert is scored on **8 weighted dimensions (max 100)**:
+
+| Dimension | Max | Passes when |
+|-----------|----:|-------------|
+| `key_area` | 12 | alert is at a flagged key area |
+| `oi_sustained` | 15 | ≥ 3 positive OI minutes |
+| `volume_confirm` | 15 | ≥ 3 volume-confirmed add minutes |
+| `oi_velocity` | 13 | chain/pct outlier flag present |
+| `spot_confirm` | 15 | **BUY_CE:** PE behavior = `PE_ADD_SPOT_UP`; **BUY_PE:** spot 5m ≤ +8 pts |
+| `writer_price` | 10 | direction = `WRITERS ADDING` |
+| `commission` | 10 | cost gate passes (11.7) |
+| `atm_proximity` | 10 | `|spot − strike| ≤ 150 pts` (score scales linearly to 0 at 150) |
+
+**Grade:** A ≥ 80% · B ≥ 65% · C ≥ 50% · else WATCH. **Paper-eligible** = `total_score ≥ 65`
+(`TRADE_MIN_CONFLUENCE`) **AND zero blockers**.
+
+**Blockers** (any one → not paper-eligible; shown in the Blockers column):
+
+| Blocker | Raised when |
+|---------|-------------|
+| `ORB_NO_TRADE` | inside 09:15–09:30 (09:45 expiry) window |
+| `LATE_SESSION` | after **15:15** IST (`LATE_SESSION_SIGNAL_CUTOFF`) |
+| `MAX_OPEN` | already 1 open paper signal (`MAX_OPEN_SIGNALS = 1`) |
+| `THESIS_STACK` | a position is open and same-thesis stacking is blocked |
+| `STRIKE_TOO_FAR` | strike > 150 pts from spot |
+| `STRIKE_SPACING` | within **100 pts** of an open position's strike (`MIN_OPEN_STRIKE_SPACING`) |
+| `DIRECTION_CONFLICT` | single-direction book and this decision ≠ the open one |
+| `PE_SPOT_NOT_CONFIRMED` | BUY_CE but PE behavior ≠ `PE_ADD_SPOT_UP` |
+| `SPOT_NOT_WEAK` | BUY_PE but spot 5m > +8 pts |
+| `COMMISSION_TOO_THIN` | cost gate fails (11.7) |
+| `WRITER_NOT_CONFIRMED` | direction = `OI ADDING - PRICE NOT CONFIRMED` |
+| `COOLDOWN` | < **600 s** since the last signal on this key |
+| `NO_ENTRY_CONTRACT` | entry leg missing or entry price ≤ 0 |
+| `FUTURES_MACRO_CONFLICT` | option side fights FII index-futures + live futures OI (11.9) |
+
+## 11.7 Commission gate (`commission_conviction_check`)
+
+Passes when the **gross at target** covers costs with conviction:
+
+```
+gross_target ≥ max( min_gross_rupees(500) , round_trip_cost × min_net_profit_multiple(3) )
+```
+
+Target premium = `entry × 1.50`. Round-trip cost models Zerodha flat brokerage (₹20/order or 0.03%,
+lower) + STT (sell 0.0625%) + exchange + SEBI + GST + stamp, on `lot_size = 65`. Configurable via
+`.env` (`NIFTY_LOT_SIZE`, `NIFTY_BROKERAGE_PER_ORDER`, `NIFTY_MIN_NET_PROFIT_MULTIPLE`,
+`NIFTY_MIN_GROSS_RUPEES`).
+
+## 11.8 "System Trade Decisions" panel — paper take + manage
+
+**Taking a paper trade** (`_maybe_take_paper_signal`): from the eligible candidates, pick the highest
+`total_score`; if both BUY_CE and BUY_PE are eligible (fresh book), keep only the higher-scoring side
+(single-direction book). Hard pre-checks: not in ORB/expiry/late window, < 1 open, no same-key open,
+≥ 600 s since this key, entry price > 0.
+
+On entry the position records: `entry_price`, **`stop_price = entry × 0.70` (−30%)**,
+**`target_price = entry × 1.50` (+50%)**, commission fields, confluence score/grade/dimensions.
+
+**Managing / exit** (`_update_open_signals`, every snapshot): marks to live option ltp and exits on:
+
+| Exit reason | Condition |
+|-------------|-----------|
+| `TARGET_HIT` | current ≥ target (+50%) |
+| `STOP_HIT` | current ≤ stop (−30%) |
+| `OI_CONVICTION_BROKEN` | OI conviction `INVALIDATED` for **2 consecutive** evaluations |
+| `EXPIRED_SERIES_PURGE` | stale signal from a rolled-off expiry |
+
+**Open-position OI conviction** (`_evaluate_open_oi_conviction`) → STRONG / WEAK / INVALIDATED:
+- **BUY_CE:** STRONG if PE `PE_ADD_SPOT_UP`; WEAK if `PE_ADD_SPOT_FLAT/QUIET/CE_DOMINANT`;
+  **INVALIDATED** if `PE_UNWIND` or `PE_ADD_SPOT_DOWN`.
+- **BUY_PE:** STRONG if CE still adding (≥ +2%) and spot not rising (≤ +8 pts); **INVALIDATED** if PE+spot
+  confirm support, or CE covers while spot rises; WEAK otherwise.
+
+## 11.9 Futures Layer panel + alignment (`evaluate_fut_opt_alignment`)
+
+Compares the option decision against **EOD FII index-futures net** + **live front-future OI behavior**:
+- `ALIGNED` / `CAUTION` / `NEUTRAL` / `CONFLICT`.
+- **`CONFLICT` → `FUTURES_MACRO_CONFLICT` blocker** when, e.g., BUY_CE while macro bearish + FII net
+  short beyond the extreme threshold + live futures showing short-build/long-unwind (mirror for BUY_PE).
+  Only blocks if `ENABLE_FUTURES_ALIGNMENT_BLOCK` is on.
+
+## 11.10 Session-timing gates (apply across the desk)
+
+| Window | Effect |
+|--------|--------|
+| 09:15–09:30 (ORB) | no fresh entries (`ORB_NO_TRADE`); 09:15–09:45 on expiry |
+| Expiry pre-09:45 | NIFTY options entries blocked (BankNifty primary) |
+| after 15:15 | no fresh paper signals (`LATE_SESSION`); open positions still managed |
+
+## 11.11 Context panels (read-only, from journal artifacts)
+
+`Morning Context`, `Key Levels`, `Sessions`, `Technicals`, `GIFT`, `Options Analytics` (Greeks/IV),
+and `Journal Status` render whatever the morning/EOD jobs wrote into `journal/`. If an artifact is
+missing the panel is blank/UNKNOWN — the desk still runs on live OI. These are **context**, not gates,
+except where they feed a grader dimension (e.g. morning `combined_bias`, futures EOD context).
