@@ -1071,34 +1071,25 @@
           clearTimeout(timer);
         }
       }
-      async function refresh() {
-        try {
-        // Fast ping first so heartbeat never stays on "Checking..." if /api/state is slow
-        try {
-          const pingResp = await fetch("/api/ping", { cache: "no-store" });
-          if (pingResp.ok) {
-            const ping = await pingResp.json();
-            updateHeartbeat({ ...ping, rows: ping.instrument_count ? new Array(ping.instrument_count) : [] }, true);
-          }
-        } catch (_pingErr) {
-          // full state fetch below will surface the real error
-        }
-        const data = await fetchState();
-        updateHeartbeat(data, true);
+      function applyData(data) {
         const rules = data.signal_rules || {};
         const orbTag = rules.orb_no_trade_active
           ? ` | ⏸ ${rules.is_expiry_day ? "EXPIRY WATCH until 9:45" : "ORB WATCH until 9:30"}`
           : "";
-        const streamTag = data.stream_alive
-          ? " | Kite LIVE"
-          : ` | <span class="bad">Kite STALE${data.tick_age_sec != null ? " " + data.tick_age_sec + "s" : ""} — refresh page or restart dashboard</span>`;
+        const streamTag = window.REPLAY_MODE
+          ? " | REPLAY"
+          : (data.stream_alive
+            ? " | Kite LIVE"
+            : ` | <span class="bad">Kite STALE${data.tick_age_sec != null ? " " + data.tick_age_sec + "s" : ""} — refresh page or restart dashboard</span>`);
         const banner = document.getElementById("streamBanner");
-        if (data.status === "SETUP_REQUIRED") {
+        if (window.REPLAY_MODE) {
+          banner.style.display = "none";
+        } else if (data.status === "SETUP_REQUIRED") {
           banner.style.display = "block";
           banner.innerHTML = `<strong>No live data — Kite login required.</strong> ${data.error || ""} Open <a href="/kite/login" style="color:#60a5fa">/kite/login</a> then hard-refresh (Ctrl+F5).`;
         } else if (data.status === "ERROR" || data.status === "CLOSED") {
           banner.style.display = "block";
-          banner.innerHTML = `<strong>Stream ${data.status}.</strong> ${data.error || "Restart dashboard: python nifty_oi_velocity_dashboard.py --host 127.0.0.1 --port 8010"}`;
+          banner.innerHTML = `<strong>Stream ${data.status}.</strong> ${data.error || "Restart dashboard."}`;
         } else if (!data.stream_alive) {
           banner.style.display = "block";
           banner.innerHTML = `<strong>Kite ticks stopped.</strong> Last tick ${data.last_tick_at || "never"}. Hard-refresh browser; if still stale, restart dashboard.`;
@@ -1108,8 +1099,10 @@
         } else {
           banner.style.display = "none";
         }
-        document.getElementById("meta").innerHTML =
-          `Server ${data.server_time} | Status ${data.status}${streamTag} | Rows ${(data.rows || []).length} | Started ${data.started_at} | Spot ${fmt(data.spot)} | Open ${fmt((data.levels || {}).open)} | Day H/L ${fmt((data.levels || {}).day_high)} / ${fmt((data.levels || {}).day_low)} | ORB ${fmt((data.levels || {}).orb_high)} / ${fmt((data.levels || {}).orb_low)}${orbTag} | Auto-refresh 2s`;
+        const lv = data.levels || {};
+        document.getElementById("meta").innerHTML = window.REPLAY_MODE
+          ? `Replay <b>${(data.replay || {}).day || ""}</b> @ <b>${((data.replay || {}).cursor || "").slice(11)}</b> | Status ${data.status} | Rows ${(data.rows || []).length} | Spot ${fmt(data.spot)} | Open ${fmt(lv.open)} | Day H/L ${fmt(lv.day_high)} / ${fmt(lv.day_low)} | ORB ${fmt(lv.orb_high)} / ${fmt(lv.orb_low)}${orbTag}`
+          : `Server ${data.server_time} | Status ${data.status}${streamTag} | Rows ${(data.rows || []).length} | Started ${data.started_at} | Spot ${fmt(data.spot)} | Open ${fmt(lv.open)} | Day H/L ${fmt(lv.day_high)} / ${fmt(lv.day_low)} | ORB ${fmt(lv.orb_high)} / ${fmt(lv.orb_low)}${orbTag} | Auto-refresh 2s`;
         safeRender("principles", renderPrinciples, data);
         safeRender("summary", renderSummary, data);
         safeRender("morningContext", renderMorningContext, data);
@@ -1127,15 +1120,106 @@
         safeRender("signals", renderSignals, data);
         safeRender("pairs", renderPairs, data);
         safeRender("depth", renderDepth, data);
-        renderCharts().catch((err) => console.error("chart refresh failed:", err));
+        if (!window.REPLAY_MODE) renderCharts().catch((err) => console.error("chart refresh failed:", err));
+      }
+      async function refresh() {
+        try {
+        // Fast ping first so heartbeat never stays on "Checking..." if /api/state is slow
+        try {
+          const pingResp = await fetch("/api/ping", { cache: "no-store" });
+          if (pingResp.ok) {
+            const ping = await pingResp.json();
+            updateHeartbeat({ ...ping, rows: ping.instrument_count ? new Array(ping.instrument_count) : [] }, true);
+          }
+        } catch (_pingErr) {
+          // full state fetch below will surface the real error
+        }
+        const data = await fetchState();
+        updateHeartbeat(data, true);
+        applyData(data);
         } catch (err) {
           console.error("dashboard refresh failed:", err);
           updateHeartbeat({}, false, String(err));
           document.getElementById("meta").innerHTML = `<span class="bad">Refresh failed: ${err}. Check <a href="/api/ping" style="color:#60a5fa">/api/ping</a> or restart dashboard on port 8010.</span>`;
         }
       }
-      refresh();
-      setInterval(refresh, 2000);
+
+      // ---- Replay mode ---------------------------------------------------
+      let replayDay = null, replayTimes = [], replayPlaying = false, replayTimer = null;
+      async function replaySeekIdx(idx) {
+        if (!replayDay || !replayTimes.length) return;
+        idx = Math.max(0, Math.min(replayTimes.length - 1, idx));
+        const slider = document.getElementById("replaySlider");
+        slider.value = idx;
+        document.getElementById("replayClock").textContent = (replayTimes[idx] || "").slice(11);
+        try {
+          const resp = await fetch(`/api/replay/state?date=${replayDay}&t=${encodeURIComponent(replayTimes[idx])}`, { cache: "no-store" });
+          if (resp.ok) applyData(await resp.json());
+        } catch (err) { console.error("replay seek failed:", err); }
+      }
+      async function replayLoadDay(day) {
+        replayDay = day;
+        document.getElementById("replayStatus").textContent = "building timeline… (first load can take a few minutes)";
+        const resp = await fetch(`/api/replay/load?date=${day}`, { method: "POST" });
+        const meta = await resp.json();
+        replayTimes = meta.frame_times || [];
+        const slider = document.getElementById("replaySlider");
+        slider.min = 0; slider.max = Math.max(0, replayTimes.length - 1); slider.value = 0;
+        document.getElementById("replayStatus").textContent = `${meta.frame_count} frames · ${meta.start ? meta.start.slice(11) : ""}–${meta.end ? meta.end.slice(11) : ""}`;
+        replaySeekIdx(0);
+      }
+      function replayTogglePlay() {
+        replayPlaying = !replayPlaying;
+        document.getElementById("replayPlay").textContent = replayPlaying ? "⏸ Pause" : "▶ Play";
+        if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+        if (replayPlaying) {
+          const speed = parseInt(document.getElementById("replaySpeed").value, 10) || 1;
+          replayTimer = setInterval(() => {
+            const slider = document.getElementById("replaySlider");
+            const next = parseInt(slider.value, 10) + 1;
+            if (next > replayTimes.length - 1) { replayTogglePlay(); return; }
+            replaySeekIdx(next);
+          }, Math.max(120, 1000 / speed));
+        }
+      }
+      async function initReplay() {
+        const bar = document.createElement("div");
+        bar.style.cssText = "position:sticky;top:0;z-index:50;background:#11141c;border:1px solid #2a2f3a;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap";
+        bar.innerHTML = `
+          <strong style="color:#60a5fa">REPLAY</strong>
+          <select id="replayDay" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2f3a;border-radius:6px;padding:6px"></select>
+          <button id="replayPlay" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2f3a;border-radius:6px;padding:6px 12px;cursor:pointer">▶ Play</button>
+          <select id="replaySpeed" style="background:#181b24;color:#e5e7eb;border:1px solid #2a2f3a;border-radius:6px;padding:6px">
+            <option value="2">2×</option><option value="5" selected>5×</option><option value="10">10×</option><option value="20">20×</option>
+          </select>
+          <input id="replaySlider" type="range" min="0" max="0" value="0" style="flex:1;min-width:220px">
+          <span id="replayClock" style="font-family:Consolas,monospace;color:#e5e7eb;min-width:70px">--:--:--</span>
+          <button id="replayBacktest" style="background:#387ed1;color:#fff;border:none;border-radius:6px;padding:6px 12px;cursor:pointer">Run backtest</button>
+          <span id="replayStatus" style="color:#9ca3af;font-size:.85rem">select a day</span>`;
+        document.body.insertBefore(bar, document.body.firstChild);
+        const daySel = document.getElementById("replayDay");
+        const resp = await fetch("/api/replay/days");
+        const days = (await resp.json()).days || [];
+        daySel.innerHTML = days.map((d) => `<option value="${d}">${d}</option>`).join("");
+        document.getElementById("replaySlider").addEventListener("input", (e) => replaySeekIdx(parseInt(e.target.value, 10)));
+        document.getElementById("replayPlay").addEventListener("click", replayTogglePlay);
+        daySel.addEventListener("change", (e) => replayLoadDay(e.target.value));
+        document.getElementById("replayBacktest").addEventListener("click", async () => {
+          if (!replayDay) return;
+          document.getElementById("replayStatus").textContent = "running backtest…";
+          await fetch(`/api/replay/backtest?date=${replayDay}`, { method: "POST" });
+          window.open(`/api/replay/report?date=${replayDay}`, "_blank");
+          document.getElementById("replayStatus").textContent = "backtest report opened";
+        });
+        if (days.length) replayLoadDay(days[days.length - 1]);
+      }
+
+      if (window.REPLAY_MODE) {
+        initReplay();
+      } else {
+        refresh();
+        setInterval(refresh, 2000);
+      }
     </script>
   </body>
 </html>
