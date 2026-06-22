@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NIFTY Desk Report — 2026-06-19</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --bg:#0f1117; --card:#181b24; --text:#e5e7eb; --muted:#9ca3af; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b; --line:#2a2f3a; --info:#60a5fa; }
+    * { box-sizing: border-box; }
+    body { font-family: Segoe UI, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.45; }
+    .wrap { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 1.55rem; margin: 0 0 8px; }
+    h2.section { font-size: 1.05rem; margin: 22px 0 10px; color: var(--muted); font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .stats-3 { grid-template-columns: repeat(6, 1fr); }
+    .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    .stat .label { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: .04em; }
+    .stat .value { font-size: 1.3rem; font-weight: 600; margin-top: 4px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; min-width: 1040px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+    .good { color: var(--good); font-weight: 600; }
+    .bad { color: var(--bad); font-weight: 600; }
+    .info { color: var(--info); }
+    .muted { color: var(--muted); font-size: 0.78rem; }
+    .mono { font-family: Consolas, monospace; font-size: 0.76rem; }
+    .tag { display: inline-block; background: #1e293b; border: 1px solid var(--line); padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; margin-right: 6px; }
+    @media (max-width: 900px) { .stats, .stats-3 { grid-template-columns: 1fr 1fr; } table { min-width: 920px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>NIFTY Desk Report — 2026-06-19</h1>
+    <p class="sub">NIFTY F&O paper desk · Filed 2026-06-22 22:52:54 IST · Morning bias — · <span class="tag">report_2026-06-19.html</span></p>
+
+    <div class="stats">
+      <div class="stat"><div class="label">Net P&L ₹</div><div class="value bad">-769</div></div>
+      <div class="stat"><div class="label">Trades (closed)</div><div class="value">28 (28)</div></div>
+      <div class="stat"><div class="label">Win rate</div><div class="value">42.9%</div></div>
+      <div class="stat"><div class="label">Profit factor</div><div class="value">0.89</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="label">Wins / Losses</div><div class="value">12 / 16</div></div>
+      <div class="stat"><div class="label">Avg win / loss ₹</div><div class="value"><span class="good">508</span> / <span class="bad">-429</span></div></div>
+      <div class="stat"><div class="label">Max drawdown ₹</div><div class="value bad">2,934</div></div>
+      <div class="stat"><div class="label">Avg hold (min)</div><div class="value">7</div></div>
+    </div>
+
+    <h2 class="section">Equity curve (cumulative net ₹)</h2>
+    <div class="card"><div style="height:300px"><canvas id="equityChart"></canvas></div></div>
+
+    <h2 class="section">Trades</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>ID</th><th>In</th><th>Out</th><th>Hold</th><th>Side</th><th>Strike</th>
+            <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th>
+            <th>Conv E&rarr;P&rarr;X</th><th>MFE %</th><th>MAE %</th><th>Captured %</th><th>Given back %</th>
+            <th>Exit reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+  <td>1</td>
+  <td>1</td>
+  <td>09:18:00</td>
+  <td>09:20:30</td>
+  <td>2</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>123.00</td>
+  <td>125.20</td>
+  <td class="good">1.79%</td>
+  <td class="good">125</td>
+  <td class="mono">100&rarr;100&rarr;0</td>
+  <td class="good">4.0%</td>
+  <td class="bad">-2.4%</td>
+  <td class="good">1.8%</td>
+  <td class="bad">2.2%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>2</td>
+  <td>2</td>
+  <td>09:20:30</td>
+  <td>09:22:30</td>
+  <td>2</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>170.70</td>
+  <td>170.25</td>
+  <td class="bad">-0.26%</td>
+  <td class="bad">-54</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">1.0%</td>
+  <td class="bad">-0.3%</td>
+  <td class="bad">-0.3%</td>
+  <td class="bad">1.3%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>3</td>
+  <td>3</td>
+  <td>09:22:30</td>
+  <td>09:36:00</td>
+  <td>14</td>
+  <td class="bad">BUY_PE</td>
+  <td>24100</td>
+  <td class="mono">NIFTY2662324100PE</td>
+  <td>184.75</td>
+  <td>205.75</td>
+  <td class="good">11.37%</td>
+  <td class="good">1,337</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">16.2%</td>
+  <td class="bad">0.8%</td>
+  <td class="good">11.4%</td>
+  <td class="bad">4.8%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>4</td>
+  <td>4</td>
+  <td>09:38:30</td>
+  <td>09:39:30</td>
+  <td>1</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>141.35</td>
+  <td>140.45</td>
+  <td class="bad">-0.64%</td>
+  <td class="bad">-79</td>
+  <td class="mono">100&rarr;100&rarr;0</td>
+  <td class="good">0.6%</td>
+  <td class="bad">-0.6%</td>
+  <td class="bad">-0.6%</td>
+  <td class="bad">1.2%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>5</td>
+  <td>5</td>
+  <td>09:39:30</td>
+  <td>09:42:30</td>
+  <td>3</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>166.65</td>
+  <td>167.05</td>
+  <td class="good">0.24%</td>
+  <td class="good">2</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">3.2%</td>
+  <td class="bad">0.2%</td>
+  <td class="good">0.2%</td>
+  <td class="bad">3.0%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>6</td>
+  <td>6</td>
+  <td>09:49:30</td>
+  <td>09:54:30</td>
+  <td>5</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>133.85</td>
+  <td>128.00</td>
+  <td class="bad">-4.37%</td>
+  <td class="bad">-399</td>
+  <td class="mono">25&rarr;25&rarr;0</td>
+  <td class="good">5.3%</td>
+  <td class="bad">-4.4%</td>
+  <td class="bad">-4.4%</td>
+  <td class="bad">9.7%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>7</td>
+  <td>7</td>
+  <td>09:55:30</td>
+  <td>10:00:00</td>
+  <td>4</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>175.70</td>
+  <td>177.30</td>
+  <td class="good">0.91%</td>
+  <td class="good">79</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">0.9%</td>
+  <td class="bad">-1.4%</td>
+  <td class="good">0.9%</td>
+  <td class="muted">0.0%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>8</td>
+  <td>8</td>
+  <td>10:03:30</td>
+  <td>10:06:30</td>
+  <td>3</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>139.45</td>
+  <td>127.80</td>
+  <td class="bad">-8.35%</td>
+  <td class="bad">-776</td>
+  <td class="mono">25&rarr;25&rarr;0</td>
+  <td class="good">-0.4%</td>
+  <td class="bad">-8.3%</td>
+  <td class="bad">-8.3%</td>
+  <td class="bad">8.3%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>9</td>
+  <td>9</td>
+  <td>10:10:30</td>
+  <td>10:17:00</td>
+  <td>6</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>178.75</td>
+  <td>182.05</td>
+  <td class="good">1.85%</td>
+  <td class="good">189</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">6.1%</td>
+  <td class="bad">-0.8%</td>
+  <td class="good">1.9%</td>
+  <td class="bad">4.3%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>10</td>
+  <td>10</td>
+  <td>10:20:30</td>
+  <td>10:23:00</td>
+  <td>2</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>120.45</td>
+  <td>122.20</td>
+  <td class="good">1.45%</td>
+  <td class="good">96</td>
+  <td class="mono">25&rarr;100&rarr;25</td>
+  <td class="good">3.8%</td>
+  <td class="bad">-0.1%</td>
+  <td class="good">1.4%</td>
+  <td class="bad">2.3%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>11</td>
+  <td>11</td>
+  <td>10:27:30</td>
+  <td>10:39:30</td>
+  <td>12</td>
+  <td class="bad">BUY_PE</td>
+  <td>24100</td>
+  <td class="mono">NIFTY2662324100PE</td>
+  <td>190.45</td>
+  <td>194.15</td>
+  <td class="good">1.94%</td>
+  <td class="good">213</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">5.5%</td>
+  <td class="bad">0.2%</td>
+  <td class="good">1.9%</td>
+  <td class="bad">3.6%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>12</td>
+  <td>12</td>
+  <td>10:40:00</td>
+  <td>10:43:00</td>
+  <td>3</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>130.65</td>
+  <td>139.25</td>
+  <td class="good">6.58%</td>
+  <td class="good">540</td>
+  <td class="mono">25&rarr;100&rarr;25</td>
+  <td class="good">7.8%</td>
+  <td class="bad">-0.6%</td>
+  <td class="good">6.6%</td>
+  <td class="bad">1.3%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>13</td>
+  <td>13</td>
+  <td>10:50:30</td>
+  <td>11:03:00</td>
+  <td>12</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>139.75</td>
+  <td>139.30</td>
+  <td class="bad">-0.32%</td>
+  <td class="bad">-49</td>
+  <td class="mono">25&rarr;100&rarr;25</td>
+  <td class="good">5.5%</td>
+  <td class="bad">-1.9%</td>
+  <td class="bad">-0.3%</td>
+  <td class="bad">5.8%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>14</td>
+  <td>14</td>
+  <td>11:03:30</td>
+  <td>11:08:00</td>
+  <td>4</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>144.40</td>
+  <td>142.20</td>
+  <td class="bad">-1.52%</td>
+  <td class="bad">-163</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">2.3%</td>
+  <td class="bad">-1.5%</td>
+  <td class="bad">-1.5%</td>
+  <td class="bad">3.8%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>15</td>
+  <td>15</td>
+  <td>11:26:00</td>
+  <td>12:23:30</td>
+  <td>58</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>145.40</td>
+  <td>122.30</td>
+  <td class="bad">-15.89%</td>
+  <td class="bad">-1,520</td>
+  <td class="mono">25&rarr;25&rarr;0</td>
+  <td class="good">-1.5%</td>
+  <td class="bad">-15.9%</td>
+  <td class="bad">-15.9%</td>
+  <td class="bad">15.9%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>16</td>
+  <td>16</td>
+  <td>12:40:00</td>
+  <td>12:44:00</td>
+  <td>4</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>124.30</td>
+  <td>143.45</td>
+  <td class="good">15.41%</td>
+  <td class="good">1,225</td>
+  <td class="mono">25&rarr;25&rarr;25</td>
+  <td class="good">15.7%</td>
+  <td class="bad">2.3%</td>
+  <td class="good">15.4%</td>
+  <td class="bad">0.3%</td>
+  <td class="muted">PARTICIPANT_REVERSAL</td>
+</tr><tr>
+  <td>17</td>
+  <td>17</td>
+  <td>12:50:00</td>
+  <td>13:09:30</td>
+  <td>20</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>136.85</td>
+  <td>151.00</td>
+  <td class="good">10.34%</td>
+  <td class="good">899</td>
+  <td class="mono">25&rarr;100&rarr;25</td>
+  <td class="good">16.0%</td>
+  <td class="bad">-2.4%</td>
+  <td class="good">10.3%</td>
+  <td class="bad">5.6%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>18</td>
+  <td>18</td>
+  <td>13:10:30</td>
+  <td>13:15:00</td>
+  <td>4</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>158.30</td>
+  <td>149.95</td>
+  <td class="bad">-5.27%</td>
+  <td class="bad">-565</td>
+  <td class="mono">25&rarr;100&rarr;25</td>
+  <td class="good">-1.1%</td>
+  <td class="bad">-5.4%</td>
+  <td class="bad">-5.3%</td>
+  <td class="bad">5.3%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>19</td>
+  <td>19</td>
+  <td>13:35:00</td>
+  <td>13:35:30</td>
+  <td>0</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>154.35</td>
+  <td>152.45</td>
+  <td class="bad">-1.23%</td>
+  <td class="bad">-145</td>
+  <td class="mono">0&rarr;0&rarr;0</td>
+  <td class="good">-1.2%</td>
+  <td class="bad">-1.2%</td>
+  <td class="bad">-1.2%</td>
+  <td class="bad">1.2%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>20</td>
+  <td>20</td>
+  <td>13:40:30</td>
+  <td>13:42:30</td>
+  <td>2</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>136.60</td>
+  <td>133.20</td>
+  <td class="bad">-2.49%</td>
+  <td class="bad">-240</td>
+  <td class="mono">25&rarr;25&rarr;0</td>
+  <td class="good">-0.2%</td>
+  <td class="bad">-2.5%</td>
+  <td class="bad">-2.5%</td>
+  <td class="bad">2.5%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>21</td>
+  <td>21</td>
+  <td>13:42:30</td>
+  <td>13:46:00</td>
+  <td>4</td>
+  <td class="good">BUY_CE</td>
+  <td>23800</td>
+  <td class="mono">NIFTY2662323800CE</td>
+  <td>220.50</td>
+  <td>220.65</td>
+  <td class="good">0.07%</td>
+  <td class="bad">-22</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">1.7%</td>
+  <td class="bad">0.1%</td>
+  <td class="good">0.1%</td>
+  <td class="bad">1.6%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>22</td>
+  <td>22</td>
+  <td>14:14:00</td>
+  <td>14:15:30</td>
+  <td>2</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>183.80</td>
+  <td>181.60</td>
+  <td class="bad">-1.20%</td>
+  <td class="bad">-169</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">0.4%</td>
+  <td class="bad">-1.2%</td>
+  <td class="bad">-1.2%</td>
+  <td class="bad">1.6%</td>
+  <td class="muted">CONFIRMATION_LOST</td>
+</tr><tr>
+  <td>23</td>
+  <td>23</td>
+  <td>14:25:30</td>
+  <td>14:26:00</td>
+  <td>0</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>115.20</td>
+  <td>111.80</td>
+  <td class="bad">-2.95%</td>
+  <td class="bad">-237</td>
+  <td class="mono">25&rarr;25&rarr;25</td>
+  <td class="good">-3.0%</td>
+  <td class="bad">-3.0%</td>
+  <td class="bad">-3.0%</td>
+  <td class="bad">3.0%</td>
+  <td class="muted">PARTICIPANT_REVERSAL</td>
+</tr><tr>
+  <td>24</td>
+  <td>24</td>
+  <td>14:26:30</td>
+  <td>14:33:00</td>
+  <td>6</td>
+  <td class="bad">BUY_PE</td>
+  <td>24100</td>
+  <td class="mono">NIFTY2662324100PE</td>
+  <td>169.50</td>
+  <td>167.05</td>
+  <td class="bad">-1.45%</td>
+  <td class="bad">-183</td>
+  <td class="mono">25&rarr;25&rarr;0</td>
+  <td class="good">2.1%</td>
+  <td class="bad">-2.4%</td>
+  <td class="bad">-1.4%</td>
+  <td class="bad">3.5%</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>25</td>
+  <td>25</td>
+  <td>14:35:30</td>
+  <td>14:40:30</td>
+  <td>5</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>108.05</td>
+  <td>104.90</td>
+  <td class="bad">-2.92%</td>
+  <td class="bad">-220</td>
+  <td class="mono">25&rarr;25&rarr;25</td>
+  <td class="good">-2.9%</td>
+  <td class="bad">-12.5%</td>
+  <td class="bad">-2.9%</td>
+  <td class="bad">2.9%</td>
+  <td class="muted">PARTICIPANT_REVERSAL</td>
+</tr><tr>
+  <td>26</td>
+  <td>26</td>
+  <td>14:46:00</td>
+  <td>14:53:00</td>
+  <td>7</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>107.70</td>
+  <td>121.60</td>
+  <td class="good">12.91%</td>
+  <td class="good">887</td>
+  <td class="mono">25&rarr;25&rarr;25</td>
+  <td class="good">13.8%</td>
+  <td class="bad">-3.8%</td>
+  <td class="good">12.9%</td>
+  <td class="bad">0.9%</td>
+  <td class="muted">PARTICIPANT_REVERSAL</td>
+</tr><tr>
+  <td>27</td>
+  <td>27</td>
+  <td>14:58:00</td>
+  <td>15:01:00</td>
+  <td>3</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>147.35</td>
+  <td>116.25</td>
+  <td class="bad">-21.11%</td>
+  <td class="bad">-2,040</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">4.6%</td>
+  <td class="bad">-21.1%</td>
+  <td class="bad">-21.1%</td>
+  <td class="bad">25.7%</td>
+  <td class="muted">CONVICTION_FADE</td>
+</tr><tr>
+  <td>28</td>
+  <td>28</td>
+  <td>15:05:00</td>
+  <td>15:13:00</td>
+  <td>8</td>
+  <td class="good">BUY_CE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000CE</td>
+  <td>121.30</td>
+  <td>129.25</td>
+  <td class="good">6.55%</td>
+  <td class="good">499</td>
+  <td class="mono">100&rarr;100&rarr;25</td>
+  <td class="good">9.7%</td>
+  <td class="bad">-1.1%</td>
+  <td class="good">6.5%</td>
+  <td class="bad">3.1%</td>
+  <td class="muted">CONFIRMATION_LOST</td>
+</tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="muted">Spot close ~- · Open - · Range - – -</p>
+    <p class="muted">Source: journal/nifty_paper_trades_2026-06-19.jsonl · journal/nse_eod_filing_2026-06-19.json</p>
+  </div>
+  <script>
+    new Chart(document.getElementById('equityChart').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: ["Start", "09:20:30", "09:22:30", "09:36:00", "09:39:30", "09:42:30", "09:54:30", "10:00:00", "10:06:30", "10:17:00", "10:23:00", "10:39:30", "10:43:00", "11:03:00", "11:08:00", "12:23:30", "12:44:00", "13:09:30", "13:15:00", "13:35:30", "13:42:30", "13:46:00", "14:15:30", "14:26:00", "14:33:00", "14:40:30", "14:53:00", "15:01:00", "15:13:00"],
+        datasets: [{
+          label: 'Cumulative net ₹',
+          data: [0.0, 125.28, 71.75, 1408.52, 1329.96, 1332.18, 933.39, 1012.21, 236.14, 424.87, 521.3, 734.32, 1273.93, 1224.81, 1061.43, -458.7, 766.61, 1665.58, 1101.03, 955.71, 715.55, 693.87, 524.88, 287.77, 104.59, -115.27, 771.63, -1268.05, -769.31],
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,0.15)',
+          fill: true, tension: 0.2, pointRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#9ca3af' } } },
+        scales: {
+          x: { ticks: { color: '#9ca3af' }, grid: { color: '#2a2f3a' } },
+          y: { ticks: { color: '#9ca3af' }, grid: { color: '#2a2f3a' } }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
