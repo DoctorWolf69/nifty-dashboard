@@ -14,14 +14,15 @@ mentor changes — for side-by-side comparison.
 - [x] Create `reports_comparison/` for the two EOD reports + `COMPARISON.md`
 
 ## Phase 1 — Revert OIV normalization + dual grader
-- [ ] Revert commits `67e60ea..e21b88c` (newest-first), one revert commit each
-- [ ] Confirm alert gate back to raw ΔOI thresholds (≥200k / ≥75k or 3× chain median)
-- [ ] Confirm `oi_velocity` confluence dim back to raw chain-outlier flag
-- [ ] Confirm gamma monitor back to raw `ΔOI ≤ −200k`, `OI ≥ 1,000,000`
-- [ ] Confirm writer-add ranking sorts by raw ΔOI(5m)
-- [ ] Confirm signed/dual grader + `_grader_comparison_block` removed
-- [ ] Keep `CHANGE_REPORT_OIV.md` as a historical record (code only reverted)
-- [ ] Smoke-test: `python -m nifty.replay.backtest 2026-06-19 --rebuild` runs clean
+- [x] Revert commits `67e60ea..e21b88c` (newest-first), one revert commit each
+- [x] Confirm alert gate back to raw ΔOI thresholds (≥200k / ≥75k or 3× chain median)
+- [x] Confirm `oi_velocity` confluence dim back to raw chain-outlier flag
+- [x] Confirm gamma monitor back to raw `ΔOI ≤ −200k`, `OI ≥ 1,000,000`
+- [x] Confirm writer-add ranking sorts by raw ΔOI(5m)
+- [x] Confirm signed/dual grader + `_grader_comparison_block` removed
+- [x] Keep `CHANGE_REPORT_OIV.md` as a historical record (code only reverted)
+- [x] Smoke-test: `python -m nifty.replay.backtest 2026-06-19 --rebuild` runs clean
+      → reproduces the report's "Before" numbers exactly (17 signals, 7/10, PF 0.72, −₹1,741)
 
 ## Phase 2 — Report A (post-revert baseline)
 - [ ] Replay 2026-06-19 to regenerate trades under reverted code
