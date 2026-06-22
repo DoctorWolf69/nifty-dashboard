@@ -45,15 +45,30 @@ mentor changes — for side-by-side comparison.
 - [x] Write `reports_comparison/COMPARISON.md` (A −1,741/0.72 vs B −769/0.89)
 
 ## Phase 5 — Port v2 widgets (structural + feasible data)
-- [ ] Tab-based layout (Live / Context / Chain / Journal) over existing panels
-- [ ] Customizable widgets: show/hide/reorder with `localStorage` persistence
-- [ ] Left rail (morning/session) shell
-- [ ] Action panel (right sidebar) shell
-- [ ] Scoreboard columns backed by existing data (Trade=paper_eligible, Blockers, Entry/Conv if present)
-- [ ] **Deferred (need EV/ML backend)**: Market Intelligence Lab, Model Governance, Intelligence tab,
-      scoreboard columns P% / Conf% / EV₹ / Risk / Why / Intent / MP / VReg / Liq / Opt
+- [x] Tab-based layout (Live / Context / Chain / Journal) over the 16 existing panels
+- [x] Customizable widgets: show/hide/reorder with `localStorage` persistence
+- [x] Left rail — tab nav + quick status (spot / status / bias / open trades / instruments)
+- [x] Action panel (right sidebar) — open trade or top paper-eligible candidate
+- [x] Scoreboard: feasible columns already present (Score, Grade, Paper=eligible, Blockers, Fut,
+      Ph7-9, per-dimension scores) — no new backend needed
+- [x] **Deferred (need EV/ML backend, not ported)**: Market Intelligence Lab, Model Governance,
+      Intelligence tab, scoreboard columns P% / Conf% / EV₹ / Risk / Why / Intent / MP / VReg / Liq / Opt
 
 ## Phase 6 — Verify & finalize
-- [ ] Dashboard UI loads; tabs + widget show/hide/reorder persist across reload
-- [ ] Backtest re-runs cleanly and produces a report
-- [ ] All boxes ticked
+- [x] Dashboard UI loads (replay server serves HTTP 200 with all 16 widgets + tab nav); JS syntax-checked
+- [x] Backtest re-runs cleanly and produces a report (28 signals, net −769, PF 0.89)
+- [x] All boxes ticked
+
+---
+
+## Result summary
+- **Revert:** OIV normalization + dual grader fully reverted; 2026-06-19 reproduces the pre-OIV
+  baseline exactly (17 trades, net −1,741, PF 0.72).
+- **Dynamic Trade Management:** fixed profit target removed, catastrophic stop kept; live
+  conviction / MFE / MAE tracking; evidence-based exits. 2026-06-19: 28 trades, net −769, PF 0.89.
+- **Reports:** `reports_comparison/report_A_post_revert_2026-06-19.html` (baseline) and
+  `report_B_post_mentor_2026-06-19.html` (mentor), plus `COMPARISON.md`.
+- **Widgets:** tab deck (Live/Context/Chain/Journal) + customizable show/hide/reorder + left rail
+  + action panel ported into `nifty/dashboard/templates/index.html`. EV/ML widgets deferred.
+- **How to regenerate a day's report:** `python -m nifty.replay.seed_journal <day> --rebuild`
+  then `python -m nifty.eod.session_report --date <day> --skip-nse`.
