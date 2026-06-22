@@ -28,10 +28,6 @@ trades (it never places real orders), and now also lets you **replay and backtes
   trade table) at a public URL, plus a daily auto-email of the report.
 - **Replay + backtest** — re-run the live engine over any archived day with a time slider, and
   backtest its signals against the actual recorded prices.
-- **Normalized OI velocity** — detection/scoring uses an ATR-, time-of-day-, DTE- and
-  liquidity-normalized OI-velocity **z-score** (not raw ΔOI), so a burst is judged against what's
-  normal for that context. A **dual grader** also runs a negative-inclusive (−100..+100) shadow
-  score alongside the live 0–100 grader, compared side-by-side in the report and email.
 
 It is **read-only against the broker** — there is no order-placement code anywhere.
 
@@ -356,36 +352,3 @@ Compares the option decision against **EOD FII index-futures net** + **live fron
 and `Journal Status` render whatever the morning/EOD jobs wrote into `journal/`. If an artifact is
 missing the panel is blank/UNKNOWN — the desk still runs on live OI. These are **context**, not gates,
 except where they feed a grader dimension (e.g. morning `combined_bias`, futures EOD context).
-
-## 11.12 Normalized OI velocity + dual grader (supersedes the raw ΔOI in 11.1 / 11.5 / 11.6)
-
-**Normalized OI velocity** (`analytics/oi_velocity.py`). Every chain row now carries a context-
-normalized signed **z-score** instead of raw ΔOI. For each window (30s, 1m, 3m, 5m, 15m):
-
-    z = signed_ΔOI_velocity / expected_scale
-    expected_scale = base_dispersion × atr_factor × dte_factor × tod_factor × liq_factor
-
-- `base_dispersion`: archive-derived std (`data/oi_baselines.json`, keyed by moneyness / time-of-day
-  bin / DTE bucket / window) blended with the live cross-sectional dispersion of the chain; falls back
-  to in-session adaptive when a key is absent.
-- `atr_factor = clamp(atr_14d / OIV_ATR_REF, 0.5, 2.0)`; `dte_factor` (expiry 1.6 → far 1.0);
-  `tod_factor` (open 1.6, close 1.4, lunch 0.8); `liq_factor` from strike OI vs chain median.
-- Emits per contract: **velocity_score** (headline signed z), **velocity_percentile**,
-  **acceleration** (z(1m) − z(5m): + accelerating / − decelerating), plus adding/unwind scores.
-
-Where raw ΔOI was replaced (all env-tunable `OIV_*`):
-| Site | Old (raw) | New (normalized) |
-|------|-----------|------------------|
-| Alert gate (11.1) | `ΔOI ≥ 200k/75k` | `oiv_adding ≥ OIV_Z_ALERT` or `pctl ≥ OIV_PCT_ALERT` |
-| `oi_velocity` dim (11.6) | "chain outlier" flag | `oiv_adding ≥ OIV_Z_DIM` or `pctl ≥ OIV_PCT_DIM` |
-| Gamma (11.5) | `ΔOI ≤ −200k`, `OI ≥ 1M` | `oiv_unwind ≤ −OIV_Z_UNWIND`, `oi_percentile ≥ OIV_OI_PCTL_HEAVY` |
-| "Top Writer Adds" ranking | raw `velocity_5m.delta` | `oiv_adding` |
-
-Baselines: `python -m nifty.jobs oi-baselines`. Calibration guide: `python -m nifty.replay.calibrate_oiv`.
-
-**Dual grader** (`analytics/confluence.py`). Alongside the live 0–100 grader, a **signed shadow
-grader** scores each of the 8 dimensions **+weight (pass) / −weight (fail)** → `signed_score`
-(−100..+100), `signed_grade` (A ≥ +60, B ≥ +30, C ≥ 0, WATCH < 0). **Paper eligibility is unchanged**
-— it still uses only the positive grader; the signed score is shadow-only. The report and auto-email
-show both per signal plus an aggregate comparison (grade agreement, and which grader's score better
-separated winners from losers by realized P&L).
