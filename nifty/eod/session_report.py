@@ -358,6 +358,11 @@ def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = Non
         tin = str(row.get("generated_at") or "")[:19]
         tout = str(row.get("exit_time") or "OPEN")[:19]
         hold = _hold_minutes(row)
+        conv_track = "&rarr;".join(
+            _fmt_opt(row.get(k), 0)
+            for k in ("entry_conviction", "peak_conviction", "exit_conviction")
+        )
+        given_back = row.get("profit_given_back_pct")
         rows_html.append(
             f"""<tr>
   <td>{idx}</td>
@@ -372,6 +377,11 @@ def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = Non
   <td>{_fmt(row.get('exit_price') or row.get('current_price'))}</td>
   <td class="{_pnl_class(pnl_pct)}">{_fmt(pnl_pct)}%</td>
   <td class="{_pnl_class(net)}">{_fmt(net, 0)}</td>
+  <td class="mono">{conv_track}</td>
+  <td class="good">{_fmt_opt(row.get('mfe_pct'), 1, '%')}</td>
+  <td class="bad">{_fmt_opt(row.get('mae_pct'), 1, '%')}</td>
+  <td class="{_pnl_class(row.get('profit_captured_pct'))}">{_fmt_opt(row.get('profit_captured_pct'), 1, '%')}</td>
+  <td class="{'bad' if (given_back or 0) > 0 else 'muted'}">{_fmt_opt(given_back, 1, '%')}</td>
   <td class="muted">{row.get('exit_reason') or ('OPEN' if not row.get('exit_time') else '-')}</td>
 </tr>"""
         )
@@ -439,7 +449,9 @@ def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = Non
         <thead>
           <tr>
             <th>#</th><th>ID</th><th>In</th><th>Out</th><th>Hold</th><th>Side</th><th>Strike</th>
-            <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th><th>Exit reason</th>
+            <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th>
+            <th>Conv E&rarr;P&rarr;X</th><th>MFE %</th><th>MAE %</th><th>Captured %</th><th>Given back %</th>
+            <th>Exit reason</th>
           </tr>
         </thead>
         <tbody>
