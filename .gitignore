@@ -16,6 +16,7 @@ data/live_nifty_oi/
 data/gift_nifty/
 data/nse_eod/
 data/replay/
+data/oi_baselines.json
 journal/
 !journal/.gitkeep
 !data/.gitkeep
