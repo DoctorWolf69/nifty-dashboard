@@ -176,6 +176,7 @@
           <th>Time</th>
           <th>Grade</th>
           <th>Score</th>
+          <th title="Negative-inclusive shadow grader (-100..+100)">Signed</th>
           <th>Decision</th>
           <th>Strike</th>
           <th>Writer</th>
@@ -684,6 +685,7 @@
             <td class="small">${(r.evaluated_at || "").slice(11, 19)}</td>
             <td class="${gradeTone(r.grade)}">${r.grade || "-"}</td>
             <td><strong>${r.total_score}/${r.max_score}</strong> <span class="small">(${fmt(r.score_pct, 1)}%)</span></td>
+            <td class="${(r.signed_score || 0) >= 0 ? 'good' : 'bad'}">${r.signed_grade || "-"} <span class="small">${r.signed_score > 0 ? "+" : ""}${r.signed_score != null ? r.signed_score : ""}</span></td>
             <td>${r.decision}</td>
             <td>${r.strike}</td>
             <td class="small">${r.writer_contract || "-"}</td>

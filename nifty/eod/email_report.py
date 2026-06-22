@@ -59,6 +59,14 @@ def _summary_text(label: str) -> str:
     def fmt(v, default="—"):
         return default if v is None else v
 
+    # Normal vs signed (shadow) grader agreement on closed trades.
+    scored = [
+        t for t in s.get("trades", [])
+        if t.get("exit_time") and t.get("confluence_grade") and t.get("confluence_grade_signed")
+    ]
+    agree = sum(1 for t in scored if t.get("confluence_grade") == t.get("confluence_grade_signed"))
+    grader_line = f"Grader agree:    {agree}/{len(scored)} (normal vs signed shadow)\n" if scored else ""
+
     public_url = os.getenv("REPORT_PUBLIC_URL", "").strip()
     link = f"\nLive report: {public_url.rstrip('/')}/report_latest.html\n" if public_url else ""
     return (
@@ -71,6 +79,7 @@ def _summary_text(label: str) -> str:
         f"Profit factor:   {fmt(s['profit_factor'])}\n"
         f"Max drawdown:    Rs {fmt(s['max_drawdown'])}\n"
         f"Avg hold (min):  {fmt(s['avg_hold_min'])}\n"
+        f"{grader_line}"
         f"{link}"
         f"\nFull report + signal list attached (report_{label}.zip).\n"
     )
