@@ -38,6 +38,22 @@
       .pe { color: var(--good); }
       .small { font-size: 12px; color: var(--muted); }
       select { font-size: 13px; }
+      /* --- Tabbed deck layout (ported from v2) --- */
+      .deck { display: grid; grid-template-columns: 190px 1fr 240px; gap: 14px; align-items: start; }
+      .rail { position: sticky; top: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+      .rail-title { font-weight: 700; margin-bottom: 10px; color: var(--info); }
+      .tabnav { display: flex; flex-direction: column; gap: 6px; }
+      .tabnav button { text-align: left; background: #10151d; color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; cursor: pointer; font-size: 13px; }
+      .tabnav button.active { background: #1e2a3d; border-color: var(--info); color: #fff; }
+      .rail-btn { margin-top: 12px; width: 100%; background: #10151d; color: var(--muted); border: 1px dashed var(--border); border-radius: 6px; padding: 7px; cursor: pointer; font-size: 12px; }
+      .rail-status { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+      .deck-main { min-width: 0; }
+      .widget { margin-bottom: 14px; }
+      .widget.hidden, .hidden { display: none !important; }
+      .customizer-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+      .customizer-row label { font-size: 13px; }
+      .customizer-row .ctrls button { background: #10151d; color: var(--fg); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; cursor: pointer; margin-left: 4px; }
+      @media (max-width: 1100px) { .deck { grid-template-columns: 1fr; } .rail { position: static; } }
     </style>
   </head>
   <body>
@@ -56,13 +72,31 @@
       </div>
       <div class="small">If status is SETUP_REQUIRED, open the login endpoint, then open the returned Zerodha login_url.</div>
     </div>
+    <div class="deck">
+      <aside id="leftRail" class="rail">
+        <div class="rail-title">NIFTY Desk</div>
+        <nav id="tabNav" class="tabnav"></nav>
+        <button id="customizeBtn" class="rail-btn" type="button">⚙ Customize</button>
+        <div id="railStatus" class="rail-status small"></div>
+      </aside>
+      <main class="deck-main">
+        <div id="customizer" class="card hidden"></div>
+    <section class="widget" data-widget-id="summary" data-tab="live" data-widget-label="Summary">
     <div id="summary" class="grid"></div>
+    </section>
+    <section class="widget" data-widget-id="morningContext" data-tab="context" data-widget-label="Morning Context">
     <h2>Morning Context</h2>
     <div id="morningContext" class="card" style="border-color:#3b4f6b"></div>
+    </section>
+    <section class="widget" data-widget-id="keyLevels" data-tab="context" data-widget-label="Key Levels">
     <h2>Key Levels (Institutional + Retail)</h2>
     <div id="keyLevels" class="grid"></div>
+    </section>
+    <section class="widget" data-widget-id="playbook" data-tab="context" data-widget-label="Intraday Playbook">
     <h2>Intraday Playbook</h2>
     <div id="playbook" class="card" style="border-color:#3b4f6b"></div>
+    </section>
+    <section class="widget" data-widget-id="chart" data-tab="live" data-widget-label="Live OI + Price Chart">
     <h2>Live OI + Price Chart</h2>
     <div class="small" style="margin-bottom:8px">Top = NIFTY spot. Bottom = selected strike with <strong>CE + PE premium</strong> (left) and <strong>CE + PE OI</strong> (right).</div>
     <div class="card">
@@ -75,6 +109,8 @@
       <div id="chartBehaviorLegend" class="small" style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap"></div>
       <div id="chartMeta" class="small" style="margin-top:8px"></div>
     </div>
+    </section>
+    <section class="widget" data-widget-id="sessions" data-tab="context" data-widget-label="Session Awareness">
     <h2>Session Awareness</h2>
     <table>
       <thead>
@@ -88,10 +124,16 @@
       </thead>
       <tbody id="sessions"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="technicals" data-tab="context" data-widget-label="Retail Technical Levels">
     <h2>Retail Technical Levels</h2>
     <div id="technicals" class="grid"></div>
+    </section>
+    <section class="widget" data-widget-id="gift" data-tab="context" data-widget-label="GIFT Nifty">
     <h2>GIFT Nifty — Overnight / Post-Close</h2>
     <div id="gift" class="card"></div>
+    </section>
+    <section class="widget" data-widget-id="futures" data-tab="context" data-widget-label="Index Futures Macro">
     <h2>Index Futures — Macro Layer (Live + EOD)</h2>
     <div id="futuresLayer" class="card" style="border-color:#3b4f6b"></div>
     <table>
@@ -111,6 +153,8 @@
       </thead>
       <tbody id="futuresContracts"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="optionsAnalytics" data-tab="context" data-widget-label="Options Analytics (Ph7-9)">
     <h2>Options Analytics — Phases 7–9 (Delta · Greeks · IV)</h2>
     <div id="optionsAnalytics" class="card" style="border-color:#3b4f6b"></div>
     <table>
@@ -129,6 +173,8 @@
       </thead>
       <tbody id="optionsChain"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="gamma" data-tab="context" data-widget-label="Expiry Gamma Blast Monitor">
     <h2>Expiry Gamma Blast Monitor</h2>
     <table>
       <thead>
@@ -146,6 +192,8 @@
       </thead>
       <tbody id="gamma"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="abnormal" data-tab="live" data-widget-label="Abnormal OI Add Alerts">
     <h2>Abnormal OI Add Alerts</h2>
     <table>
       <thead>
@@ -167,6 +215,8 @@
       </thead>
       <tbody id="abnormal"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="scoreboard" data-tab="live" data-widget-label="Signal Confluence Scoreboard">
     <h2>Signal Confluence Scoreboard</h2>
     <div class="small" style="margin-bottom:6px">Scores <strong>every</strong> writer alert for review (journal). <strong>Paper = YES</strong> only when score ≥ min <em>and Blockers column is empty</em>. One open paper trade blocks all new entries.</div>
     <div id="paperGateNote" class="small" style="margin-bottom:6px"></div>
@@ -192,6 +242,8 @@
       </thead>
       <tbody id="signalCandidates"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="systemDecisions" data-tab="journal" data-widget-label="System Trade Decisions">
     <h2>System Trade Decisions</h2>
     <div id="journalStatus" class="small" style="margin-bottom:8px;padding:8px;border:1px solid #334155;border-radius:6px"></div>
     <table>
@@ -220,6 +272,8 @@
       </thead>
       <tbody id="signals"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="pairs" data-tab="chain" data-widget-label="Strike Pair View">
     <h2>Strike Pair View</h2>
     <table>
       <thead>
@@ -240,6 +294,8 @@
       </thead>
       <tbody id="pairs"></tbody>
     </table>
+    </section>
+    <section class="widget" data-widget-id="depth" data-tab="chain" data-widget-label="Depth Concentration">
     <h2>Depth Concentration</h2>
     <table>
       <thead>
@@ -257,6 +313,13 @@
       </thead>
       <tbody id="depth"></tbody>
     </table>
+    </section>
+      </main>
+      <aside id="actionPanel" class="rail">
+        <div class="rail-title">Action</div>
+        <div id="actionBody" class="small">Waiting for state…</div>
+      </aside>
+    </div>
     <script>
       const fmt = (v, d=2) => Number(v || 0).toLocaleString("en-IN", { maximumFractionDigits: d });
       const cls = (v) => Number(v || 0) > 0 ? "good" : Number(v || 0) < 0 ? "bad" : "info";
@@ -1223,6 +1286,93 @@
         refresh();
         setInterval(refresh, 2000);
       }
+    </script>
+    <script>
+      // --- Tabbed deck + customizable widgets (ported/adapted from v2) ----
+      (function () {
+        const LS_TAB = "nifty_active_tab_v1";
+        const LS_LAYOUT = "nifty_widget_layout_v1";
+        const TABS = [["live", "Live"], ["context", "Context"], ["chain", "Chain"], ["journal", "Journal"]];
+        let layout = (() => { try { return JSON.parse(localStorage.getItem(LS_LAYOUT)) || {}; } catch (e) { return {}; } })();
+        let activeTab = localStorage.getItem(LS_TAB) || "live";
+        const saveLayout = () => localStorage.setItem(LS_LAYOUT, JSON.stringify(layout));
+        const metas = () => Array.from(document.querySelectorAll(".widget")).map((el, i) => ({
+          id: el.dataset.widgetId, label: el.dataset.widgetLabel || el.dataset.widgetId,
+          tab: el.dataset.tab || "live", el, dom: i,
+        }));
+        const ord = (m) => (layout[m.id] && layout[m.id].order != null) ? layout[m.id].order : m.dom;
+        function ensureOrders() { metas().forEach((m) => { layout[m.id] = Object.assign({ order: m.dom }, layout[m.id]); }); }
+
+        function applyLayout() {
+          const main = document.querySelector(".deck-main");
+          metas().sort((a, b) => ord(a) - ord(b)).forEach((m) => {
+            const hidden = !!(layout[m.id] && layout[m.id].hidden);
+            m.el.classList.toggle("hidden", hidden || m.tab !== activeTab);
+            main.appendChild(m.el); // re-seat in saved order (customizer stays first)
+          });
+        }
+        function renderTabs() {
+          const nav = document.getElementById("tabNav");
+          nav.innerHTML = "";
+          TABS.forEach(([id, label]) => {
+            const b = document.createElement("button");
+            b.textContent = label; b.type = "button";
+            if (id === activeTab) b.className = "active";
+            b.onclick = () => { activeTab = id; localStorage.setItem(LS_TAB, id); renderTabs(); applyLayout(); closeCustomizer(); };
+            nav.appendChild(b);
+          });
+        }
+        function move(id, dir) {
+          ensureOrders();
+          const sorted = metas().sort((a, b) => ord(a) - ord(b));
+          const tab = (sorted.find((m) => m.id === id) || {}).tab;
+          const inTab = sorted.filter((m) => m.tab === tab);
+          const i = inTab.findIndex((m) => m.id === id), j = i + dir;
+          if (j < 0 || j >= inTab.length) return;
+          const a = inTab[i].id, b = inTab[j].id, t = layout[a].order;
+          layout[a].order = layout[b].order; layout[b].order = t;
+          saveLayout(); applyLayout(); openCustomizer();
+        }
+        function openCustomizer() {
+          const box = document.getElementById("customizer");
+          box.innerHTML = "<h2>Customize widgets</h2><div class='small' style='margin-bottom:8px'>Show / hide and reorder. Saved in this browser only.</div>";
+          const sorted = metas().sort((a, b) => ord(a) - ord(b));
+          TABS.forEach(([tid, tlabel]) => {
+            const inTab = sorted.filter((m) => m.tab === tid);
+            if (!inTab.length) return;
+            const h = document.createElement("div");
+            h.className = "small"; h.style.cssText = "margin:8px 0 2px;color:var(--info);font-weight:600";
+            h.textContent = tlabel; box.appendChild(h);
+            inTab.forEach((m) => {
+              const row = document.createElement("div");
+              row.className = "customizer-row";
+              const shown = !(layout[m.id] && layout[m.id].hidden);
+              row.innerHTML = `<label><input type="checkbox" ${shown ? "checked" : ""}> ${m.label}</label>`
+                + `<span class="ctrls"><button type="button" data-up>↑</button><button type="button" data-down>↓</button></span>`;
+              row.querySelector("input").onchange = (e) => { layout[m.id] = Object.assign({}, layout[m.id], { hidden: !e.target.checked }); saveLayout(); applyLayout(); };
+              row.querySelector("[data-up]").onclick = () => move(m.id, -1);
+              row.querySelector("[data-down]").onclick = () => move(m.id, 1);
+              box.appendChild(row);
+            });
+          });
+          const done = document.createElement("button");
+          done.className = "rail-btn"; done.type = "button"; done.textContent = "Done";
+          done.onclick = closeCustomizer; box.appendChild(done);
+          box.classList.remove("hidden");
+        }
+        function closeCustomizer() { document.getElementById("customizer").classList.add("hidden"); }
+
+        function init() {
+          const btn = document.getElementById("customizeBtn");
+          if (btn) btn.onclick = () => {
+            document.getElementById("customizer").classList.contains("hidden") ? openCustomizer() : closeCustomizer();
+          };
+          renderTabs();
+          applyLayout();
+        }
+        if (document.readyState !== "loading") init();
+        else document.addEventListener("DOMContentLoaded", init);
+      })();
     </script>
   </body>
 </html>
