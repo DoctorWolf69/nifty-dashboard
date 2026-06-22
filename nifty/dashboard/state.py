@@ -63,6 +63,20 @@ from nifty.analytics.confluence import (
     TRADE_MIN_CONFLUENCE,
     score_signal_candidate,
 )
+from nifty.analytics.oi_velocity import (
+    OIVelocityNormalizer,
+    days_to_expiry,
+    load_oiv_config,
+    load_oi_baselines,
+)
+
+# Normalized OI-velocity thresholds (env-overridable via OIV_* in load_oiv_config).
+OIV_Z_ALERT = float(os.getenv("OIV_Z_ALERT", "1.5"))       # adding z to raise an alert
+OIV_PCT_ALERT = float(os.getenv("OIV_PCT_ALERT", "90"))    # or percentile
+OIV_Z_DIM = float(os.getenv("OIV_Z_DIM", "1.5"))           # confluence oi_velocity dim pass
+OIV_PCT_DIM = float(os.getenv("OIV_PCT_DIM", "90"))
+OIV_Z_UNWIND = float(os.getenv("OIV_Z_UNWIND", "1.5"))     # gamma unwind (abs)
+OIV_OI_PCTL_HEAVY = float(os.getenv("OIV_OI_PCTL_HEAVY", "70"))  # gamma heavy-OI percentile
 
 try:
     from kiteconnect import KiteConnect, KiteTicker
@@ -107,7 +121,9 @@ GAP_PLAYBOOK_THRESHOLD = 30  # points vs prev close
 PLAYBOOK_VELOCITY_ADD_PCT = 2.0
 PLAYBOOK_VELOCITY_UNWIND_PCT = -2.0
 PLAYBOOK_SPOT_FLAT_PTS = 8.0  # spot 5m move within +/- this = flat
+VELOCITY_30S_SEC = 30
 VELOCITY_1M_SEC = 60
+VELOCITY_3M_SEC = 180
 VELOCITY_5M_SEC = 300
 VELOCITY_15M_SEC = 900
 PLAYBOOK_WATCH_STRIKES = (23100, 23200)
@@ -413,7 +429,9 @@ class InstrumentState:
         }
 
     def snapshot(self) -> Dict[str, Any]:
+        v30 = self.velocity(VELOCITY_30S_SEC)
         v1 = self.velocity(VELOCITY_1M_SEC)
+        v3 = self.velocity(VELOCITY_3M_SEC)
         v5 = self.velocity(VELOCITY_5M_SEC)
         v15 = self.velocity(VELOCITY_15M_SEC)
         buy_depth = self._depth_summary(self.depth_buy)
@@ -431,7 +449,9 @@ class InstrumentState:
             "last_quantity": self.last_quantity,
             "total_buy_quantity": self.total_buy_quantity,
             "total_sell_quantity": self.total_sell_quantity,
+            "velocity_30s": v30,
             "velocity_1m": v1,
+            "velocity_3m": v3,
             "velocity_5m": v5,
             "velocity_15m": v15,
             "recent_1m_deltas": self.recent_minute_deltas(),
@@ -519,6 +539,8 @@ class OIVelocityState:
         self.orb_high_reclaimed_at = ""
         self._playbook_phase = "INIT"
         self.morning_context: Dict[str, Any] = {}
+        self._oiv_baselines: Optional[Dict[str, Any]] = None
+        self._oiv_cfg = load_oiv_config()
         self._live_morning = LiveMorningContext()
         self._bias_verdict = "INIT"
         self._session_open_gap: Dict[str, Any] = {}
@@ -1748,6 +1770,8 @@ class OIVelocityState:
             "confluence_score": best.get("total_score"),
             "confluence_grade": best.get("grade"),
             "confluence_dimensions": best.get("dimensions"),
+            "confluence_score_signed": best.get("signed_score"),
+            "confluence_grade_signed": best.get("signed_grade"),
             "source_alert": alert,
             "desk_context": self.journal.build_signal_context(self),
             "paper_only": True,
@@ -2394,6 +2418,44 @@ class OIVelocityState:
             )
         return payload
 
+    def _attach_oiv(self, rows: List[Dict[str, Any]]) -> None:
+        """Attach context-normalized OI-velocity metrics to each chain row.
+
+        Replaces raw ΔOI magnitude as the basis for detection/scoring: each row
+        gets velocity_score (signed z), velocity_percentile, acceleration and the
+        adding/unwind scores, normalized for ATR, time-of-day, DTE and liquidity.
+        """
+        if self._oiv_baselines is None:
+            self._oiv_baselines = load_oi_baselines()
+        atr_14d = as_float(
+            ((self.morning_context or {}).get("key_levels") or {}).get("atr_14d")
+        ) or None
+        dte = days_to_expiry(self.expiry, CLOCK.today()) if self.expiry else None
+        normalizer = OIVelocityNormalizer(
+            atr_14d=atr_14d,
+            dte=dte,
+            now=CLOCK.now(),
+            baselines=self._oiv_baselines,
+            cfg=self._oiv_cfg,
+        )
+        norms = normalizer.normalize_chain(rows, spot=self.spot)
+        # rank OI for the gamma heavy-OI percentile
+        ois = sorted(int(r.get("oi") or 0) for r in rows)
+        for row in rows:
+            norm = norms.get(int(row.get("token") or 0))
+            if norm is None:
+                continue
+            row["oiv"] = norm.as_dict()
+            row["velocity_score"] = round(norm.velocity_score, 2)
+            row["velocity_percentile"] = norm.velocity_percentile
+            row["acceleration"] = round(norm.acceleration, 2)
+            row["oiv_adding"] = round(norm.adding_score, 2)
+            row["oiv_unwind"] = round(norm.unwind_score, 2)
+            oi = int(row.get("oi") or 0)
+            row["oi_percentile"] = round(
+                (sum(1 for v in ois if v <= oi) / len(ois)) * 100, 1
+            ) if ois else 0.0
+
     def snapshot(self, light: bool = False) -> Dict[str, Any]:
         # light=True runs the full signal pipeline (writer-adds, OI conviction,
         # playbook, signal generation) but skips Greeks, futures layer and payload
@@ -2406,6 +2468,7 @@ class OIVelocityState:
             self._capture_session_open_gap()
             rows = [item.snapshot() for item in self.instruments.values()]
         rows.sort(key=lambda row: (row["strike"], row["option_type"]))
+        self._attach_oiv(rows)
         by_strike: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
         for row in rows:
             by_strike[int(row["strike"])][str(row["option_type"])] = row
@@ -2442,14 +2505,15 @@ class OIVelocityState:
                 }
             )
 
+        # Ranking now uses the normalized adding score, not raw ΔOI.
         strongest_ce_add = sorted(
             [row for row in rows if row["option_type"] == "CE"],
-            key=lambda row: row["velocity_5m"]["delta"],
+            key=lambda row: row.get("oiv_adding", 0.0),
             reverse=True,
         )[:3]
         strongest_pe_add = sorted(
             [row for row in rows if row["option_type"] == "PE"],
-            key=lambda row: row["velocity_5m"]["delta"],
+            key=lambda row: row.get("oiv_adding", 0.0),
             reverse=True,
         )[:3]
 
@@ -2475,19 +2539,19 @@ class OIVelocityState:
             repeated_add = len(positive_recent) >= MIN_POSITIVE_MINUTE_ADDS
             volume_confirmed = len(volume_positive_recent) >= MIN_VOLUME_CONFIRMED_MINUTES
             sustained_enough = len(recent) >= SUSTAINED_ADD_MINUTES
-            chain_outlier = v5["delta"] >= max(200000, median_5m * 3) or v1["delta"] >= max(75000, median_1m * 3)
-            pct_outlier = v5["pct"] >= 8 or v1["pct"] >= 4
+            # Normalized OI-velocity outlier (replaces raw ΔOI thresholds).
+            oiv_add = as_float(row.get("oiv_adding"))
+            oiv_pctl = as_float(row.get("velocity_percentile"))
+            oiv_score = as_float(row.get("velocity_score"))
+            oiv_accel = as_float(row.get("acceleration"))
+            oiv_outlier = oiv_add >= OIV_Z_ALERT or (oiv_pctl >= OIV_PCT_ALERT and oiv_add > 0)
             price_confirmed = (row["option_type"] == "CE" and self.spot <= row["strike"]) or (
                 row["option_type"] == "PE" and self.spot >= row["strike"]
             )
-            if not (key_area and sustained_enough and repeated_add and volume_confirmed and (chain_outlier or pct_outlier)):
+            if not (key_area and sustained_enough and repeated_add and volume_confirmed and oiv_outlier):
                 continue
             direction = "WRITERS ADDING" if price_confirmed else "OI ADDING - PRICE NOT CONFIRMED"
-            reason_parts = []
-            if chain_outlier:
-                reason_parts.append("chain outlier")
-            if pct_outlier:
-                reason_parts.append("pct outlier")
+            reason_parts = [f"oiv z {oiv_add:.2f} (pctl {oiv_pctl:.0f}, {'accel' if oiv_accel >= 0 else 'decel'})"]
             reason_parts.append(f"{len(positive_recent)}/{len(recent)} sustained add")
             reason_parts.append(f"{distance_pct:.2f}% from spot")
             reason_parts.append("key: " + ", ".join(key_area_reasons))
@@ -2501,6 +2565,11 @@ class OIVelocityState:
                     "velocity_1m": v1,
                     "velocity_5m": v5,
                     "velocity_15m": v15,
+                    "velocity_score": round(oiv_score, 2),
+                    "velocity_percentile": round(oiv_pctl, 1),
+                    "acceleration": round(oiv_accel, 2),
+                    "oiv_adding": round(oiv_add, 2),
+                    "oiv": row.get("oiv"),
                     "recent_1m_deltas": recent,
                     "distance_from_spot_pct": round(distance_pct, 3),
                     "key_area": key_area,
@@ -2509,12 +2578,9 @@ class OIVelocityState:
                     "reason": ", ".join(reason_parts),
                 }
             )
+        # Rank surfaced alerts by normalized score, not raw ΔOI.
         abnormal_alerts.sort(
-            key=lambda row: max(
-                abs(row["velocity_5m"]["delta"]),
-                abs(row["velocity_1m"]["delta"]),
-                abs(row["velocity_15m"]["delta"]),
-            ),
+            key=lambda row: abs(as_float(row.get("velocity_score"))),
             reverse=True,
         )
         for alert in abnormal_alerts:
@@ -2663,18 +2729,25 @@ class OIVelocityState:
             pe_v5 = pe.get("velocity_5m") or {}
             ce_delta = as_int(ce_v5.get("delta"))
             pe_delta = as_int(pe_v5.get("delta"))
-            compression = ce_oi >= GAMMA_HEAVY_OI_MIN and pe_oi >= GAMMA_HEAVY_OI_MIN
+            # Normalized: heavy OI via percentile, unwind via normalized score.
+            ce_heavy = as_float(ce.get("oi_percentile")) >= OIV_OI_PCTL_HEAVY
+            pe_heavy = as_float(pe.get("oi_percentile")) >= OIV_OI_PCTL_HEAVY
+            ce_unwind_z = as_float(ce.get("oiv_unwind"))
+            pe_unwind_z = as_float(pe.get("oiv_unwind"))
+            ce_unwinding = ce_unwind_z <= -OIV_Z_UNWIND
+            pe_unwinding = pe_unwind_z <= -OIV_Z_UNWIND
+            compression = ce_heavy and pe_heavy
             signal = "OBSERVE"
             direction = "NONE"
             if compression:
                 signal = "COMPRESSION"
-                if ce_delta <= -GAMMA_UNWIND_DELTA_MIN and pe_delta >= 0 and self.spot >= strike:
+                if ce_unwinding and pe_unwind_z >= 0 and self.spot >= strike:
                     signal = "GAMMA_BLAST_UP_RISK"
                     direction = "UP"
-                elif pe_delta <= -GAMMA_UNWIND_DELTA_MIN and ce_delta >= 0 and self.spot <= strike:
+                elif pe_unwinding and ce_unwind_z >= 0 and self.spot <= strike:
                     signal = "GAMMA_BLAST_DOWN_RISK"
                     direction = "DOWN"
-                elif ce_delta <= -GAMMA_UNWIND_DELTA_MIN and pe_delta <= -GAMMA_UNWIND_DELTA_MIN:
+                elif ce_unwinding and pe_unwinding:
                     signal = "EXPIRY_DECAY_UNWIND"
                     direction = "MIXED"
             zones.append(
@@ -2708,8 +2781,8 @@ class OIVelocityState:
             "zones": zones,
             "rules": {
                 "near_spot_pct": GAMMA_NEAR_SPOT_PCT,
-                "heavy_oi_min": GAMMA_HEAVY_OI_MIN,
-                "unwind_delta_min": GAMMA_UNWIND_DELTA_MIN,
+                "heavy_oi_percentile": OIV_OI_PCTL_HEAVY,
+                "unwind_z": OIV_Z_UNWIND,
             },
         }
 
