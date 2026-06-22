@@ -1456,17 +1456,42 @@ class OIVelocityState:
             current_price = as_float(current.get("last_price"))
             signal["current_price"] = current_price
             entry_price = as_float(signal.get("entry_price"))
+            pnl_pct = 0.0
             if entry_price > 0:
-                signal["pnl_pct"] = round(((current_price - entry_price) / entry_price) * 100, 2)
+                pnl_pct = round(((current_price - entry_price) / entry_price) * 100, 2)
+                signal["pnl_pct"] = pnl_pct
             stop_price = as_float(signal.get("stop_price"))
-            target_price = as_float(signal.get("target_price"))
-            exit_reason = None
-            if target_price and current_price >= target_price:
-                exit_reason = "TARGET_HIT"
-            elif stop_price and current_price <= stop_price:
-                exit_reason = "STOP_HIT"
+
+            # --- Live conviction re-evaluation (mentor: every update) --------
             oi_conv = self._evaluate_open_oi_conviction(signal, pairs_by_strike, spot_v5, rows)
             signal["oi_conviction"] = oi_conv
+            cur_conv = self._conviction_score(oi_conv)
+            if signal.get("entry_conviction") is None:
+                signal["entry_conviction"] = cur_conv
+            prev_peak = as_int(signal.get("peak_conviction"), cur_conv)
+            peak_conv = max(prev_peak, cur_conv)
+            signal["current_conviction"] = cur_conv
+            signal["peak_conviction"] = peak_conv
+
+            # --- Excursions: MFE / MAE / max profit (mentor: every update) ---
+            mfe_pct = max(as_float(signal.get("mfe_pct", pnl_pct)), pnl_pct)
+            mae_pct = min(as_float(signal.get("mae_pct", pnl_pct)), pnl_pct)
+            signal["mfe_pct"] = round(mfe_pct, 2)
+            signal["mae_pct"] = round(mae_pct, 2)
+            signal["max_profit_pct"] = round(max(0.0, mfe_pct), 2)
+
+            # --- Live confirmation factors (for CONFIRMATION_LOST) -----------
+            writer_5m = as_float(oi_conv.get("writer_oi_5m_pct"))
+            live_conf = {
+                "thesis": str(oi_conv.get("level")) in {"STRONG", "NEUTRAL"},
+                "commission": bool(oi_conv.get("commission_to_target_pass")),
+                "participant": writer_5m > 0,
+            }
+            if signal.get("entry_confirmations") is None:
+                signal["entry_confirmations"] = sorted(k for k, v in live_conf.items() if v)
+            entry_confs = signal.get("entry_confirmations") or []
+            lost_confs = [k for k in entry_confs if not live_conf.get(k)]
+
             prev_level = str(signal.get("_last_journaled_oi_level") or "")
             new_level = str(oi_conv.get("level") or "")
             if new_level and new_level != prev_level:
@@ -1481,18 +1506,46 @@ class OIVelocityState:
                         "strike": signal.get("strike"),
                         "entry_contract": signal.get("entry_contract"),
                         "current_price": current_price,
-                        "pnl_pct": signal.get("pnl_pct"),
+                        "pnl_pct": pnl_pct,
+                        "current_conviction": cur_conv,
+                        "peak_conviction": peak_conv,
+                        "mfe_pct": signal["mfe_pct"],
+                        "mae_pct": signal["mae_pct"],
                         "oi_conviction": oi_conv,
                         "spot": self.spot,
                     }
                 )
-            if exit_reason is None and oi_conv.get("level") == "INVALIDATED":
-                streak = as_int(signal.get("oi_invalid_streak")) + 1
-                signal["oi_invalid_streak"] = streak
-                if streak >= 2:
-                    exit_reason = "OI_CONVICTION_BROKEN"
+
+            # --- Dynamic exits (no fixed profit target; protect captured P&L)
+            # Priority: catastrophic stop, thesis invalidation, participant
+            # reversal, loss of multiple confirmations, then conviction fade.
+            exit_reason = None
+            exit_note = None
+            if stop_price and current_price <= stop_price:
+                exit_reason = "STOP_HIT"  # catastrophic stop — unchanged
+            elif new_level == "INVALIDATED":
+                # Entry thesis broken — exit immediately (mentor rules 1 & 5).
+                signal["oi_invalid_streak"] = as_int(signal.get("oi_invalid_streak")) + 1
+                exit_reason = "OI_CONVICTION_BROKEN"
+                exit_note = oi_conv.get("read")
             else:
                 signal["oi_invalid_streak"] = 0
+                if writer_5m <= PLAYBOOK_VELOCITY_UNWIND_PCT:
+                    # The followed writer is covering — participant reversed.
+                    exit_reason = "PARTICIPANT_REVERSAL"
+                    exit_note = f"Followed writer unwinding ({writer_5m:.1f}% 5m)"
+                elif len(lost_confs) >= CONFIRMATION_LOST_MIN:
+                    exit_reason = "CONFIRMATION_LOST"
+                    exit_note = "Entry confirmations lost: " + ", ".join(lost_confs)
+
+            # Conviction fade: weakened well below peak and not recovering.
+            weakened = (peak_conv - cur_conv) >= CONVICTION_FADE_DROP
+            fade_streak = as_int(signal.get("conv_fade_streak")) + 1 if weakened else 0
+            signal["conv_fade_streak"] = fade_streak
+            if exit_reason is None and weakened and fade_streak >= CONVICTION_FADE_STREAK:
+                exit_reason = "CONVICTION_FADE"
+                exit_note = f"Conviction {cur_conv} faded from peak {peak_conv}"
+
             if exit_reason is None:
                 enriched = enrich_signal_with_commission(signal, self.commission_cfg)
                 signal.update(
@@ -1503,12 +1556,17 @@ class OIVelocityState:
                     }
                 )
                 continue
+
+            # --- Close: record dynamic-management summary (mentor journal) ---
             signal["status"] = "CLOSED"
             signal["exit_time"] = now
             signal["exit_price"] = current_price
             signal["exit_reason"] = exit_reason
-            if exit_reason == "OI_CONVICTION_BROKEN":
-                signal["exit_note"] = oi_conv.get("read")
+            if exit_note:
+                signal["exit_note"] = exit_note
+            signal["exit_conviction"] = cur_conv
+            signal["profit_captured_pct"] = round(pnl_pct, 2)
+            signal["profit_given_back_pct"] = round(max(0.0, signal["max_profit_pct"] - pnl_pct), 2)
             closed = enrich_signal_with_commission(signal, self.commission_cfg)
             signal.update(closed)
             self._append_signal_journal({"event": "SIGNAL_CLOSED", **signal})
