@@ -3,9 +3,19 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from nifty.core.commission import CommissionConfig, commission_conviction_check
+
+# Normalized OI-velocity pass thresholds for the oi_velocity dimension (env-overridable).
+OIV_Z_DIM = float(os.getenv("OIV_Z_DIM", "1.5"))
+OIV_PCT_DIM = float(os.getenv("OIV_PCT_DIM", "90"))
+
+# Signed-grade bands for the shadow (negative-inclusive) grader, on a -100..+100 scale.
+SIGNED_GRADE_A = 60
+SIGNED_GRADE_B = 30
+SIGNED_GRADE_C = 0
 
 CONFLUENCE_WEIGHTS: Dict[str, int] = {
     "key_area": 12,
@@ -103,7 +113,10 @@ def score_signal_candidate(
     positive_recent = [row for row in recent if _as_int(row.get("oi_delta")) > 0]
     volume_positive = [row for row in positive_recent if _as_int(row.get("volume_delta")) > 0]
     reason = str(alert.get("reason") or "")
-    chain_outlier = "chain outlier" in reason or "pct outlier" in reason
+    # Normalized OI-velocity outlier (replaces raw ΔOI "chain outlier" flag).
+    oiv_adding = _as_float(alert.get("oiv_adding"))
+    oiv_pctl = _as_float(alert.get("velocity_percentile"))
+    oiv_pass = oiv_adding >= OIV_Z_DIM or oiv_pctl >= OIV_PCT_DIM
 
     dimensions: Dict[str, Dict[str, Any]] = {}
     dimensions["key_area"] = _dim(
@@ -127,8 +140,8 @@ def score_signal_candidate(
     dimensions["oi_velocity"] = _dim(
         CONFLUENCE_WEIGHTS["oi_velocity"],
         CONFLUENCE_WEIGHTS["oi_velocity"],
-        chain_outlier,
-        reason or "No velocity outlier flag",
+        oiv_pass,
+        f"oiv z {oiv_adding:.2f} / pctl {oiv_pctl:.0f} (need z≥{OIV_Z_DIM} or pctl≥{OIV_PCT_DIM:.0f})",
     )
 
     spot_ok = False
@@ -182,6 +195,19 @@ def score_signal_candidate(
 
     total_score = sum(_as_int(dim.get("score")) for dim in dimensions.values())
     max_score = sum(CONFLUENCE_WEIGHTS.values())
+
+    # Shadow signed grader: each dimension contributes +weight (pass) or -weight
+    # (fail). Range -100..+100. Does NOT affect paper eligibility — comparison only.
+    signed_dimensions = {
+        name: (dim["max"] if dim.get("pass") else -dim["max"]) for name, dim in dimensions.items()
+    }
+    signed_score = sum(signed_dimensions.values())
+    signed_grade = (
+        "A" if signed_score >= SIGNED_GRADE_A
+        else "B" if signed_score >= SIGNED_GRADE_B
+        else "C" if signed_score >= SIGNED_GRADE_C
+        else "WATCH"
+    )
 
     blockers: List[str] = []
     if in_orb_no_trade:
@@ -249,6 +275,9 @@ def score_signal_candidate(
         "max_score": max_score,
         "score_pct": round((total_score / max_score) * 100, 1) if max_score else 0,
         "grade": _grade(total_score, max_score),
+        "signed_score": signed_score,
+        "signed_grade": signed_grade,
+        "signed_dimensions": signed_dimensions,
         "dimensions": dimensions,
         "blockers": blockers,
         "confluence_ready": confluence_ready,
