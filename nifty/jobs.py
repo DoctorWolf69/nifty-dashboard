@@ -131,6 +131,12 @@ def cmd_email_report(_args: argparse.Namespace) -> None:
     _delegate(email_report.main, ["email_report"])
 
 
+def cmd_oi_baselines(_args: argparse.Namespace) -> None:
+    from nifty.replay import oi_baselines
+
+    oi_baselines.build_baselines()
+
+
 _COMMANDS = {
     "morning": cmd_morning,
     "premarket": cmd_premarket,
@@ -138,7 +144,11 @@ _COMMANDS = {
     "eod-filing": cmd_eod_filing,
     "session-report": cmd_session_report,
     "email-report": cmd_email_report,
+    "oi-baselines": cmd_oi_baselines,
 }
+
+# Offline/analytics jobs that should run regardless of trading-day calendar.
+_CALENDAR_EXEMPT = {"oi-baselines"}
 
 
 def main() -> None:
@@ -150,7 +160,7 @@ def main() -> None:
     parser.add_argument("--previous", action="store_true", help="(eod) use previous trading day")
     args = parser.parse_args()
 
-    if not args.force and not is_trading_day():
+    if args.command not in _CALENDAR_EXEMPT and not args.force and not is_trading_day():
         print(f"[jobs] {_ist_today().isoformat()} is not a trading day — skipping '{args.command}'. Use --force to override.")
         return
 
