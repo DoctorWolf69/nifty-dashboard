@@ -107,6 +107,15 @@ GAP_PLAYBOOK_THRESHOLD = 30  # points vs prev close
 PLAYBOOK_VELOCITY_ADD_PCT = 2.0
 PLAYBOOK_VELOCITY_UNWIND_PCT = -2.0
 PLAYBOOK_SPOT_FLAT_PTS = 8.0  # spot 5m move within +/- this = flat
+
+# --- Dynamic trade management (mentor spec) -------------------------------
+# Live conviction for an open position is derived (in the trade-management
+# layer, not the conviction engine) from the OI-conviction level so it can be
+# tracked tick-by-tick against its peak. Scores are 0..100.
+CONVICTION_LEVEL_SCORE = {"STRONG": 100, "NEUTRAL": 50, "WEAK": 25, "INVALIDATED": 0}
+CONVICTION_FADE_DROP = 30      # points below peak that counts as "weakened"
+CONVICTION_FADE_STREAK = 2     # consecutive weakened updates -> exit
+CONFIRMATION_LOST_MIN = 2      # >= this many entry confirmation factors lost -> exit
 VELOCITY_1M_SEC = 60
 VELOCITY_5M_SEC = 300
 VELOCITY_15M_SEC = 900
@@ -1883,6 +1892,20 @@ class OIVelocityState:
             "spot_dist": round(self.spot - strike, 2) if self.spot else None,
             "pair_read": pair.get("read"),
         }
+
+    @staticmethod
+    def _conviction_score(oi_conv: Dict[str, Any]) -> int:
+        """Map a live OI-conviction read to a 0..100 score for tick-by-tick tracking.
+
+        Derived in the trade-management layer (the conviction engine itself is
+        unchanged). A failed commission-to-target check shaves points so a
+        position whose remaining move no longer covers costs reads as weaker.
+        """
+        level = str(oi_conv.get("level") or "NEUTRAL")
+        score = CONVICTION_LEVEL_SCORE.get(level, 50)
+        if oi_conv.get("commission_to_target_pass") is False and score > 0:
+            score = max(0, score - 15)
+        return int(score)
 
     def _evaluate_open_oi_conviction(
         self,
