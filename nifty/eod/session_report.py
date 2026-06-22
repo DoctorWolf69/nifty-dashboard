@@ -325,43 +325,6 @@ def _nse_filing_block(label: str) -> str:
     </div>"""
 
 
-def _grader_comparison_block(trades: List[Dict[str, Any]]) -> str:
-    """Normal vs signed grader: agreement + which separated winners from losers better."""
-    closed = [t for t in trades if t.get("exit_time") and t.get("pnl_net_rupees") is not None]
-    scored = [t for t in closed if t.get("confluence_score") is not None and t.get("confluence_score_signed") is not None]
-    if not scored:
-        return ""
-
-    def _avg(vals: List[float]) -> Optional[float]:
-        return round(sum(vals) / len(vals), 1) if vals else None
-
-    agree = sum(1 for t in scored if t.get("confluence_grade") == t.get("confluence_grade_signed"))
-    wins = [t for t in scored if float(t.get("pnl_net_rupees") or 0) > 0]
-    losses = [t for t in scored if float(t.get("pnl_net_rupees") or 0) < 0]
-    n_win = [float(t["confluence_score"]) for t in wins]
-    n_loss = [float(t["confluence_score"]) for t in losses]
-    s_win = [float(t["confluence_score_signed"]) for t in wins]
-    s_loss = [float(t["confluence_score_signed"]) for t in losses]
-    sep_norm = (_avg(n_win) or 0) - (_avg(n_loss) or 0) if (n_win and n_loss) else None
-    sep_signed = (_avg(s_win) or 0) - (_avg(s_loss) or 0) if (s_win and s_loss) else None
-    better = "—"
-    if sep_norm is not None and sep_signed is not None:
-        better = "Signed" if abs(sep_signed) > abs(sep_norm) else "Normal" if abs(sep_norm) > abs(sep_signed) else "Tie"
-
-    def _c(v):
-        return _fmt(v, 1) if v is not None else "—"
-
-    return f"""
-    <h2 class="section">Grader comparison — normal (0..100) vs signed (-100..+100, shadow)</h2>
-    <div class="stats">
-      <div class="stat"><div class="label">Grade agreement</div><div class="value">{agree}/{len(scored)}</div></div>
-      <div class="stat"><div class="label">Avg score · win / loss</div><div class="value"><span class="good">{_c(_avg(n_win))}</span> / <span class="bad">{_c(_avg(n_loss))}</span></div></div>
-      <div class="stat"><div class="label">Avg signed · win / loss</div><div class="value"><span class="good">{_c(_avg(s_win))}</span> / <span class="bad">{_c(_avg(s_loss))}</span></div></div>
-      <div class="stat"><div class="label">Better separator</div><div class="value">{better}</div></div>
-    </div>
-    <p class="muted">Separation (win−loss): normal {_c(sep_norm)} · signed {_c(sep_signed)}. Larger = the grader's score discriminated winners from losers better on this day. Signed grader is shadow-only — it does not affect which trades were taken.</p>"""
-
-
 def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = None) -> str:
     """Full TradingView-style performance report (cards + equity curve + trade table).
 
@@ -409,8 +372,6 @@ def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = Non
   <td>{_fmt(row.get('exit_price') or row.get('current_price'))}</td>
   <td class="{_pnl_class(pnl_pct)}">{_fmt(pnl_pct)}%</td>
   <td class="{_pnl_class(net)}">{_fmt(net, 0)}</td>
-  <td>{row.get('confluence_grade') or '-'} {row.get('confluence_score') if row.get('confluence_score') is not None else ''}</td>
-  <td class="{_pnl_class(row.get('confluence_score_signed'))}">{row.get('confluence_grade_signed') or '-'} {f"{row.get('confluence_score_signed'):+d}" if isinstance(row.get('confluence_score_signed'), int) else ''}</td>
   <td class="muted">{row.get('exit_reason') or ('OPEN' if not row.get('exit_time') else '-')}</td>
 </tr>"""
         )
@@ -478,16 +439,14 @@ def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = Non
         <thead>
           <tr>
             <th>#</th><th>ID</th><th>In</th><th>Out</th><th>Hold</th><th>Side</th><th>Strike</th>
-            <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th>
-            <th>Grade</th><th>Signed</th><th>Exit reason</th>
+            <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th><th>Exit reason</th>
           </tr>
         </thead>
         <tbody>
-          {''.join(rows_html) or '<tr><td colspan="15" class="muted">No paper trades recorded for this day.</td></tr>'}
+          {''.join(rows_html) or '<tr><td colspan="13" class="muted">No paper trades recorded for this day.</td></tr>'}
         </tbody>
       </table>
     </div>
-{_grader_comparison_block(all_trades)}
 {_nse_filing_block(label)}
     <p class="muted">Spot close ~{_fmt(session_close.get('spot'))} · Open {_fmt(session_close.get('open'))} · Range {_fmt(session_close.get('day_low'))} – {_fmt(session_close.get('day_high'))}</p>
     <p class="muted">Source: journal/nifty_paper_trades_{label}.jsonl · journal/nse_eod_filing_{label}.json</p>
