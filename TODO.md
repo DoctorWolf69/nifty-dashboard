@@ -25,24 +25,24 @@ mentor changes — for side-by-side comparison.
       → reproduces the report's "Before" numbers exactly (17 signals, 7/10, PF 0.72, −₹1,741)
 
 ## Phase 2 — Report A (post-revert baseline)
-- [ ] Replay 2026-06-19 to regenerate trades under reverted code
-- [ ] Run `python -m nifty.jobs session-report` → standard `journal/report_2026-06-19.html`
-- [ ] Save to `reports_comparison/report_A_post_revert_2026-06-19.html`
+- [x] Replay 2026-06-19 to regenerate trades under reverted code (`nifty.replay.seed_journal`)
+- [x] Run `nifty.eod.session_report --date 2026-06-19` → standard `journal/report_2026-06-19.html`
+- [x] Save to `reports_comparison/report_A_post_revert_2026-06-19.html` (17 signals, net −1,741)
 
 ## Phase 3 — Dynamic Trade Management (mentor spec)
-- [ ] Remove fixed profit target (`TARGET_HIT`, `entry*1.50`); keep catastrophic stop (`entry*0.70`)
-- [ ] Track per update: entry / current / peak conviction
-- [ ] Track per update: current P&L %, MFE %, MAE %, max profit %
-- [ ] New exits: `THESIS_INVALIDATED`, `CONVICTION_FADE`, `CONFIRMATION_LOST`,
-      `PARTICIPANT_REVERSAL`, `OI_CONVICTION_BROKEN`
-- [ ] Journal on close: entry/peak/exit conviction, MFE, MAE, max profit %,
+- [x] Remove fixed profit target (`TARGET_HIT`, exit on `entry*1.50`); keep catastrophic stop (`entry*0.70`)
+- [x] Track per update: entry / current / peak conviction (`_conviction_score`)
+- [x] Track per update: current P&L %, MFE %, MAE %, max profit %
+- [x] New exits: `OI_CONVICTION_BROKEN` (thesis INVALIDATED, immediate), `PARTICIPANT_REVERSAL`,
+      `CONFIRMATION_LOST`, `CONVICTION_FADE`
+- [x] Journal on close: entry/peak/exit conviction, MFE, MAE, max profit %,
       profit captured %, profit given back %, exit reason
-- [ ] Surface new fields in EOD report
+- [x] Surface new fields in EOD report (Conv E→P→X, MFE/MAE, Captured/Given-back columns)
 
 ## Phase 4 — Report B (post-mentor)
-- [ ] Replay 2026-06-19 under mentor code, run `nifty.jobs session-report`
-- [ ] Save to `reports_comparison/report_B_post_mentor_2026-06-19.html`
-- [ ] Write `reports_comparison/COMPARISON.md`
+- [x] Replay 2026-06-19 under mentor code, run `nifty.eod.session_report --date 2026-06-19`
+- [x] Save to `reports_comparison/report_B_post_mentor_2026-06-19.html` (28 trades, net −769, PF 0.89)
+- [x] Write `reports_comparison/COMPARISON.md` (A −1,741/0.72 vs B −769/0.89)
 
 ## Phase 5 — Port v2 widgets (structural + feasible data)
 - [ ] Tab-based layout (Live / Context / Chain / Journal) over existing panels
