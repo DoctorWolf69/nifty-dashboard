@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NIFTY Desk Report — 2026-06-19</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --bg:#0f1117; --card:#181b24; --text:#e5e7eb; --muted:#9ca3af; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b; --line:#2a2f3a; --info:#60a5fa; }
+    * { box-sizing: border-box; }
+    body { font-family: Segoe UI, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.45; }
+    .wrap { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 1.55rem; margin: 0 0 8px; }
+    h2.section { font-size: 1.05rem; margin: 22px 0 10px; color: var(--muted); font-weight: 600; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .stats-3 { grid-template-columns: repeat(6, 1fr); }
+    .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    .stat .label { color: var(--muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: .04em; }
+    .stat .value { font-size: 1.3rem; font-weight: 600; margin-top: 4px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; min-width: 1040px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+    .good { color: var(--good); font-weight: 600; }
+    .bad { color: var(--bad); font-weight: 600; }
+    .info { color: var(--info); }
+    .muted { color: var(--muted); font-size: 0.78rem; }
+    .mono { font-family: Consolas, monospace; font-size: 0.76rem; }
+    .tag { display: inline-block; background: #1e293b; border: 1px solid var(--line); padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; margin-right: 6px; }
+    @media (max-width: 900px) { .stats, .stats-3 { grid-template-columns: 1fr 1fr; } table { min-width: 920px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>NIFTY Desk Report — 2026-06-19</h1>
+    <p class="sub">NIFTY F&O paper desk · Filed 2026-06-22 22:43:36 IST · Morning bias — · <span class="tag">report_2026-06-19.html</span></p>
+
+    <div class="stats">
+      <div class="stat"><div class="label">Net P&L ₹</div><div class="value bad">-1,741</div></div>
+      <div class="stat"><div class="label">Trades (closed)</div><div class="value">17 (17)</div></div>
+      <div class="stat"><div class="label">Win rate</div><div class="value">41.2%</div></div>
+      <div class="stat"><div class="label">Profit factor</div><div class="value">0.72</div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="label">Wins / Losses</div><div class="value">7 / 10</div></div>
+      <div class="stat"><div class="label">Avg win / loss ₹</div><div class="value"><span class="good">654</span> / <span class="bad">-632</span></div></div>
+      <div class="stat"><div class="label">Max drawdown ₹</div><div class="value bad">2,420</div></div>
+      <div class="stat"><div class="label">Avg hold (min)</div><div class="value">18</div></div>
+    </div>
+
+    <h2 class="section">Equity curve (cumulative net ₹)</h2>
+    <div class="card"><div style="height:300px"><canvas id="equityChart"></canvas></div></div>
+
+    <h2 class="section">Trades</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>ID</th><th>In</th><th>Out</th><th>Hold</th><th>Side</th><th>Strike</th>
+            <th>Contract</th><th>Entry</th><th>Exit</th><th>P&L %</th><th>Net ₹</th><th>Exit reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+  <td>1</td>
+  <td>1</td>
+  <td>09:18:00</td>
+  <td>09:21:00</td>
+  <td>3</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>123.00</td>
+  <td>123.55</td>
+  <td class="good">0.45%</td>
+  <td class="good">18</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>2</td>
+  <td>2</td>
+  <td>09:21:00</td>
+  <td>09:24:30</td>
+  <td>4</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>172.00</td>
+  <td>167.95</td>
+  <td class="bad">-2.35%</td>
+  <td class="bad">-287</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>3</td>
+  <td>3</td>
+  <td>09:24:30</td>
+  <td>09:40:00</td>
+  <td>16</td>
+  <td class="bad">BUY_PE</td>
+  <td>24100</td>
+  <td class="mono">NIFTY2662324100PE</td>
+  <td>194.00</td>
+  <td>195.25</td>
+  <td class="good">0.64%</td>
+  <td class="good">53</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>4</td>
+  <td>4</td>
+  <td>09:40:00</td>
+  <td>09:46:30</td>
+  <td>6</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>170.10</td>
+  <td>167.25</td>
+  <td class="bad">-1.68%</td>
+  <td class="bad">-209</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>5</td>
+  <td>5</td>
+  <td>09:49:30</td>
+  <td>09:55:00</td>
+  <td>6</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>133.85</td>
+  <td>126.95</td>
+  <td class="bad">-5.16%</td>
+  <td class="bad">-467</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>6</td>
+  <td>6</td>
+  <td>09:55:30</td>
+  <td>10:01:30</td>
+  <td>6</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>175.70</td>
+  <td>166.15</td>
+  <td class="bad">-5.44%</td>
+  <td class="bad">-645</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>7</td>
+  <td>7</td>
+  <td>10:03:30</td>
+  <td>10:07:00</td>
+  <td>4</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>139.45</td>
+  <td>127.80</td>
+  <td class="bad">-8.35%</td>
+  <td class="bad">-776</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>8</td>
+  <td>8</td>
+  <td>10:10:30</td>
+  <td>10:19:30</td>
+  <td>9</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>178.75</td>
+  <td>182.05</td>
+  <td class="good">1.85%</td>
+  <td class="good">189</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>9</td>
+  <td>9</td>
+  <td>10:20:30</td>
+  <td>10:48:00</td>
+  <td>28</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>120.45</td>
+  <td>132.40</td>
+  <td class="good">9.92%</td>
+  <td class="good">759</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>10</td>
+  <td>10</td>
+  <td>10:50:30</td>
+  <td>12:24:00</td>
+  <td>94</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>139.75</td>
+  <td>124.10</td>
+  <td class="bad">-11.20%</td>
+  <td class="bad">-1,036</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>11</td>
+  <td>11</td>
+  <td>12:40:00</td>
+  <td>12:49:00</td>
+  <td>9</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>124.30</td>
+  <td>135.40</td>
+  <td class="good">8.93%</td>
+  <td class="good">703</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>12</td>
+  <td>12</td>
+  <td>12:50:00</td>
+  <td>13:16:00</td>
+  <td>26</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>136.85</td>
+  <td>151.45</td>
+  <td class="good">10.67%</td>
+  <td class="good">928</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>13</td>
+  <td>13</td>
+  <td>13:35:00</td>
+  <td>13:36:00</td>
+  <td>1</td>
+  <td class="good">BUY_CE</td>
+  <td>23900</td>
+  <td class="mono">NIFTY2662323900CE</td>
+  <td>154.35</td>
+  <td>149.90</td>
+  <td class="bad">-2.88%</td>
+  <td class="bad">-311</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>14</td>
+  <td>14</td>
+  <td>13:40:30</td>
+  <td>13:43:00</td>
+  <td>2</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>136.60</td>
+  <td>129.70</td>
+  <td class="bad">-5.05%</td>
+  <td class="bad">-467</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>15</td>
+  <td>15</td>
+  <td>13:43:00</td>
+  <td>14:18:00</td>
+  <td>35</td>
+  <td class="good">BUY_CE</td>
+  <td>23800</td>
+  <td class="mono">NIFTY2662323800CE</td>
+  <td>223.85</td>
+  <td>254.00</td>
+  <td class="good">13.47%</td>
+  <td class="good">1,925</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>16</td>
+  <td>16</td>
+  <td>14:25:30</td>
+  <td>15:04:30</td>
+  <td>39</td>
+  <td class="bad">BUY_PE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000PE</td>
+  <td>115.20</td>
+  <td>87.50</td>
+  <td class="bad">-24.05%</td>
+  <td class="bad">-1,814</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr><tr>
+  <td>17</td>
+  <td>17</td>
+  <td>15:05:00</td>
+  <td>15:16:30</td>
+  <td>12</td>
+  <td class="good">BUY_CE</td>
+  <td>24000</td>
+  <td class="mono">NIFTY2662324000CE</td>
+  <td>121.30</td>
+  <td>116.90</td>
+  <td class="bad">-3.63%</td>
+  <td class="bad">-303</td>
+  <td class="muted">OI_CONVICTION_BROKEN</td>
+</tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="muted">Spot close ~- · Open - · Range - – -</p>
+    <p class="muted">Source: journal/nifty_paper_trades_2026-06-19.jsonl · journal/nse_eod_filing_2026-06-19.json</p>
+  </div>
+  <script>
+    new Chart(document.getElementById('equityChart').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: ["Start", "09:21:00", "09:24:30", "09:40:00", "09:46:30", "09:55:00", "10:01:30", "10:07:00", "10:19:30", "10:48:00", "12:24:00", "12:49:00", "13:16:00", "13:36:00", "13:43:00", "14:18:00", "15:04:30", "15:16:30"],
+        datasets: [{
+          label: 'Cumulative net ₹',
+          data: [0.0, 18.18, -269.21, -215.72, -424.95, -891.9, -1536.82, -2312.89, -2124.16, -1365.65, -2401.39, -1698.6, -770.42, -1081.26, -1548.6, 376.52, -1437.89, -1740.78],
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96,165,250,0.15)',
+          fill: true, tension: 0.2, pointRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#9ca3af' } } },
+        scales: {
+          x: { ticks: { color: '#9ca3af' }, grid: { color: '#2a2f3a' } },
+          y: { ticks: { color: '#9ca3af' }, grid: { color: '#2a2f3a' } }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
