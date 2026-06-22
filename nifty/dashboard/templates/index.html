@@ -1184,6 +1184,7 @@
         safeRender("pairs", renderPairs, data);
         safeRender("depth", renderDepth, data);
         if (!window.REPLAY_MODE) renderCharts().catch((err) => console.error("chart refresh failed:", err));
+        if (window.LayoutExtras) { try { window.LayoutExtras(data); } catch (e) { console.error("LayoutExtras failed", e); } }
       }
       async function refresh() {
         try {
@@ -1361,6 +1362,45 @@
           box.classList.remove("hidden");
         }
         function closeCustomizer() { document.getElementById("customizer").classList.add("hidden"); }
+
+        // Left rail quick-status + action panel, fed from the live state payload.
+        window.LayoutExtras = function (data) {
+          const railEl = document.getElementById("railStatus");
+          if (railEl) {
+            const pb = data.intraday_playbook || {};
+            const bias = (pb.bias_verdict || {}).verdict || "—";
+            const openN = (data.signals || []).filter((s) => s && s.status === "OPEN").length;
+            railEl.innerHTML = [
+              ["Spot", fmt(data.spot)],
+              ["Status", data.status || "—"],
+              ["Bias", bias],
+              ["Open trades", openN],
+              ["Instruments", (data.rows || []).length],
+            ].map(([k, v]) => `<div class="row"><span class="label">${k}</span><span>${v}</span></div>`).join("");
+          }
+          const actEl = document.getElementById("actionBody");
+          if (!actEl) return;
+          const open = (data.signals || []).filter((s) => s && s.status === "OPEN");
+          if (open.length) {
+            const o = open[0], c = o.oi_conviction || {};
+            actEl.innerHTML =
+              `<div class="row"><span class="label">In trade</span><span class="${o.decision === "BUY_CE" ? "good" : "bad"}">${o.decision} ${o.strike}</span></div>`
+              + `<div class="row"><span class="label">P&L</span><span class="${(o.pnl_pct || 0) >= 0 ? "good" : "bad"}">${fmt(o.pnl_pct)}%</span></div>`
+              + `<div class="row"><span class="label">Conv</span><span>${o.current_conviction != null ? o.current_conviction : "—"} / pk ${o.peak_conviction != null ? o.peak_conviction : "—"}</span></div>`
+              + (c.read ? `<div class="small" style="margin-top:6px">${c.read}</div>` : "");
+          } else {
+            const cands = (data.signal_candidates || []).filter((r) => r && r.paper_eligible);
+            if (cands.length) {
+              const r = cands.slice().sort((a, b) => (b.total_score || 0) - (a.total_score || 0))[0];
+              actEl.innerHTML =
+                `<div class="row"><span class="label">Next setup</span><span class="${r.decision === "BUY_CE" ? "good" : "bad"}">${r.decision} ${r.strike}</span></div>`
+                + `<div class="row"><span class="label">Score</span><span>${r.total_score}/${r.max_score} (${r.grade || "-"})</span></div>`
+                + `<div class="small" style="margin-top:6px">Paper-eligible — awaiting entry trigger.</div>`;
+            } else {
+              actEl.innerHTML = `<div class="small">No actionable setup — no open trade and no paper-eligible candidate.</div>`;
+            }
+          }
+        };
 
         function init() {
           const btn = document.getElementById("customizeBtn");
