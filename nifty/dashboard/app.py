@@ -52,7 +52,18 @@ def load_kite() -> Optional[KiteConnect]:
     api_key, _api_secret, access_token = env_credentials()
     if not api_key or not access_token:
         return None
-    return make_kite(api_key, access_token)
+    kite = make_kite(api_key, access_token)
+    # Validate the saved token with a cheap authenticated call. Kite access
+    # tokens roll daily / are invalidated when a new session is generated, so a
+    # stale .env token must not silently start a doomed ticker on the 09:10
+    # auto-start. On failure return None → the app shows SETUP_REQUIRED and the
+    # user re-logs in to mint a fresh token.
+    try:
+        kite.profile()
+    except Exception as exc:
+        print(f"[kite] saved access token rejected ({exc}); re-login required via /kite/login.")
+        return None
+    return kite
 
 
 
@@ -164,20 +175,50 @@ def start_kite_ticker(api_key: str, access_token: str, state: OIVelocityState) -
     if not tokens:
         state.set_status("SETUP_REQUIRED", "No instruments resolved yet. Complete Kite login first.")
         return
+
+    # Retire any previous ticker before opening a new one. Without this, a stale
+    # socket (e.g. after the access token rolls or a re-login) keeps auto-
+    # reconnecting, fails the websocket upgrade with 403, and its on_close/on_error
+    # stomp the live status to CLOSED/ERROR — which is why a re-login alone never
+    # recovered and only a full process restart did. close() = stop_retry() +
+    # drop connection on that ticker only; it does NOT stop the shared reactor.
+    old = getattr(state, "ticker", None)
+    if old is not None:
+        try:
+            old.close()
+        except Exception:
+            pass
+
+    state.ticker_gen += 1
+    gen = state.ticker_gen
     ticker = KiteTicker(api_key, access_token)
+    state.ticker = ticker
 
     def on_ticks(ws: KiteTicker, ticks: List[Dict[str, Any]]) -> None:
+        if gen != state.ticker_gen:
+            return
         state.update_ticks(ticks)
 
     def on_connect(ws: KiteTicker, _response: Any) -> None:
+        if gen != state.ticker_gen:
+            # Superseded by a newer ticker — shut this stale socket down.
+            try:
+                ws.close()
+            except Exception:
+                pass
+            return
         state.set_status("CONNECTED")
         ws.subscribe(tokens)
         ws.set_mode(ws.MODE_FULL, tokens)
 
     def on_close(_ws: KiteTicker, code: int, reason: str) -> None:
+        if gen != state.ticker_gen:
+            return  # a retired ticker closing — must not touch the live status
         state.set_status("CLOSED", f"{code}: {reason}")
 
     def on_error(_ws: KiteTicker, code: int, reason: str) -> None:
+        if gen != state.ticker_gen:
+            return
         state.set_status("ERROR", f"{code}: {reason}")
 
     ticker.on_ticks = on_ticks

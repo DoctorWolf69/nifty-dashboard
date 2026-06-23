@@ -488,6 +488,12 @@ class OIVelocityState:
         self.next_signal_id = 1
         self.status = "STARTING"
         self.error: Optional[str] = None
+        # Live Kite websocket ticker + a generation counter. Every (re)connect
+        # bumps the generation; only the current generation's callbacks may
+        # touch status, so a retired/zombie ticker reconnecting (e.g. 403 after
+        # a token roll) can never stomp the live connection's status.
+        self.ticker: Any = None
+        self.ticker_gen = 0
         self.started_at = ist_now()
         self.spot = 0.0
         self.spot_open = 0.0
