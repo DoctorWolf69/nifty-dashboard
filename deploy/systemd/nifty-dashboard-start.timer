@@ -1,8 +1,8 @@
 [Unit]
-Description=Start dashboard 09:10 IST
+Description=Start dashboard 08:00 IST
 
 [Timer]
-OnCalendar=Mon..Fri 09:10 Asia/Kolkata
+OnCalendar=Mon..Fri 08:00 Asia/Kolkata
 Persistent=false
 
 [Install]
