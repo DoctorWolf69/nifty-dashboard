@@ -2634,13 +2634,18 @@ class OIVelocityState:
         tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
         stream_alive = tick_age_sec is not None and tick_age_sec <= 20
         spot_v5 = self._spot_velocity(300)
-        futures_list = self._future_instrument_list()
-        futures_layer = build_futures_layer(
-            futures_list,
-            spot=self.spot,
-            spot_v5=spot_v5,
-            eod_context=self.futures_eod_context,
-        )
+        # Under the lock: build_futures_layer reads each future's history deque,
+        # which the ticker thread appends to in update_ticks. Without the lock the
+        # two race -> "RuntimeError: deque mutated during iteration". Options rows
+        # above are already read under the lock for the same reason.
+        with self.lock:
+            futures_list = self._future_instrument_list()
+            futures_layer = build_futures_layer(
+                futures_list,
+                spot=self.spot,
+                spot_v5=spot_v5,
+                eod_context=self.futures_eod_context,
+            )
         self.futures_layer = futures_layer
 
         with self.lock:
