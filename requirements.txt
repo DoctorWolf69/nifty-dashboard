@@ -1,5 +1,7 @@
 # NIFTY desk — runtime dependencies only (no crypto/AI/DB stack)
 kiteconnect
+dhanhq>=2.0.0           # warm-standby failover feed (DHAN_FAILOVER=1)
+pyotp>=2.9              # Dhan headless token mint
 fastapi>=0.110.0
 uvicorn>=0.27.0
 python-dotenv>=1.0.0

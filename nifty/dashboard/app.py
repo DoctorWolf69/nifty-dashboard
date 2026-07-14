@@ -42,11 +42,52 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
                 print(f"[{ist_now()}] engine loop error: {exc}")
             await asyncio.sleep(max(0.1, interval - (loop.time() - t0)))
 
+    async def _dhan_standby() -> None:
+        """Warm-standby failover (DHAN_FAILOVER=1): mint a TOTP token, map the
+        tracked contracts to Dhan security ids, stream in parallel, and let
+        the router flip sources when Kite goes silent. Every transition lands
+        on the broker timeline."""
+        from nifty.dhan import auth as dhan_auth
+        from nifty.dhan.provider import DhanFeed, resolve_security_ids
+        from nifty.dashboard.state import NIFTY_SPOT_TOKEN
+
+        # Wait for instrument resolution (Kite login may happen after boot).
+        while not state.instruments:
+            await asyncio.sleep(10)
+        try:
+            client_id, token = await asyncio.to_thread(dhan_auth.get_credentials)
+            sid_map = await asyncio.to_thread(
+                resolve_security_ids, list(state.instruments.values())
+            )
+        except Exception as exc:
+            state.record_broker_event("dhan", "SETUP_FAILED", str(exc))
+            return
+        if not sid_map:
+            state.record_broker_event("dhan", "SETUP_FAILED", "no contracts mapped")
+            return
+        feed = DhanFeed(client_id, token, sid_map, NIFTY_SPOT_TOKEN,
+                        on_ticks=state.router.sink("dhan"))
+        feed.start()
+        state.record_broker_event(
+            "dhan", "STANDBY", f"{len(sid_map)} contracts + spot subscribed"
+        )
+        while True:
+            state.router.step()
+            await asyncio.sleep(5)
+
     @app.on_event("startup")
     async def _start_engine_loop() -> None:
         if engine_loop_enabled:
             print(f"[{ist_now()}] engine loop ON (interval {os.getenv('ENGINE_LOOP_INTERVAL', '1.0')}s)")
             asyncio.create_task(_engine_loop())
+        if os.getenv("DHAN_FAILOVER", "").strip() == "1":
+            from nifty.dhan import auth as dhan_auth
+            if dhan_auth.is_configured():
+                asyncio.create_task(_dhan_standby())
+            else:
+                state.record_broker_event(
+                    "dhan", "SETUP_FAILED", "DHAN_FAILOVER=1 but credentials missing in .env"
+                )
 
     @app.get("/", response_class=HTMLResponse)
     async def home() -> str:

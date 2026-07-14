@@ -508,6 +508,13 @@ class OIVelocityState:
         # Optional slim sink (nifty.storage.SlimTickStore), wired by __main__
         # for the live path only; replay never persists ticks.
         self.slim_store: Optional[Any] = None
+        # Tick-source routing + broker audit trail. Providers deliver through
+        # router.sink(name); only the active source reaches update_ticks.
+        # Replay bypasses the router (calls update_ticks directly).
+        from nifty.market.router import SourceRouter
+        self.router = SourceRouter(self)
+        self.active_provider = "kite"
+        self.broker_events: Deque[Dict[str, Any]] = deque(maxlen=200)
         self.instruments: Dict[int, InstrumentState] = {}
         self.futures: Dict[int, InstrumentState] = {}
         self.futures_layer: Dict[str, Any] = {}
@@ -1362,6 +1369,19 @@ class OIVelocityState:
         with self.lock:
             self.status = status
             self.error = error
+
+    def record_broker_event(self, provider: str, event: str, detail: str = "") -> None:
+        """Broker connectivity audit trail: in-memory for the dashboard strip,
+        journaled (broker_status_{day}.jsonl) for the permanent record."""
+        row = {"at": ist_now(), "provider": provider, "event": event, "detail": detail}
+        self.broker_events.append(row)
+        try:
+            self.journal.append_jsonl(
+                self.journal._dated_path("broker_status"), {"event_type": "BROKER", **row}
+            )
+        except Exception:
+            pass  # the timeline must never take the feed down
+        print(f"[{row['at']}] broker {provider}: {event}" + (f" ({detail})" if detail else ""))
 
     def quick_status(self) -> Dict[str, Any]:
         tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
@@ -2736,6 +2756,8 @@ class OIVelocityState:
             return {
                 "status": self.status,
                 "error": self.error,
+                "active_provider": self.active_provider,
+                "broker_timeline": list(self.broker_events),
                 "stream_alive": stream_alive,
                 "last_tick_at": self.last_tick_at,
                 "tick_age_sec": tick_age_sec,

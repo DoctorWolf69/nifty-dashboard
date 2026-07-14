@@ -218,10 +218,12 @@ def start_kite_ticker(api_key: str, access_token: str, state: OIVelocityState) -
     ticker = KiteTicker(api_key, access_token)
     state.ticker = ticker
 
+    kite_sink = state.router.sink("kite")
+
     def on_ticks(ws: KiteTicker, ticks: List[Dict[str, Any]]) -> None:
         if gen != state.ticker_gen:
             return
-        state.update_ticks(ticks)
+        kite_sink(ticks)
 
     def on_connect(ws: KiteTicker, _response: Any) -> None:
         if gen != state.ticker_gen:
@@ -232,6 +234,7 @@ def start_kite_ticker(api_key: str, access_token: str, state: OIVelocityState) -
                 pass
             return
         state.set_status("CONNECTED")
+        state.record_broker_event("kite", "CONNECTED")
         ws.subscribe(tokens)
         ws.set_mode(ws.MODE_FULL, tokens)
 
@@ -239,11 +242,13 @@ def start_kite_ticker(api_key: str, access_token: str, state: OIVelocityState) -
         if gen != state.ticker_gen:
             return  # a retired ticker closing — must not touch the live status
         state.set_status("CLOSED", f"{code}: {reason}")
+        state.record_broker_event("kite", "CLOSED", f"{code}: {reason}")
 
     def on_error(_ws: KiteTicker, code: int, reason: str) -> None:
         if gen != state.ticker_gen:
             return
         state.set_status("ERROR", f"{code}: {reason}")
+        state.record_broker_event("kite", "ERROR", f"{code}: {reason}")
 
     ticker.on_ticks = on_ticks
     ticker.on_connect = on_connect
