@@ -44,20 +44,12 @@ SCRUB = {
     "journal_summary",      # whole subtree: replay tempdir paths + today-dated names
 }
 
-# Wall-clock leaks, compared separately and reported as warnings until
-# Migration Phase 2 injects the clock/context:
-#   - expiry.py gate defaults (datetime.now() when no clock passed)
-#   - trade_date: LiveMorningContext resolves TODAY, not the replayed day
-#   - source_date: FII/DII EOD context loaded relative to today's wall clock
-KNOWN_P2 = {
-    "orb_no_trade_active",
-    "orb_no_trade_seconds_remaining",
-    "nifty_options_blocked",
-    "fresh_entries_allowed",
-    "late_session_active",
-    "trade_date",
-    "source_date",
-}
+# Wall-clock leaks tolerated as warnings while they were being fixed.
+# Migration Phase 2 injected the engine clock into the ORB/expiry gates,
+# morning context day, FII/DII context day, and greeks/IV time-to-expiry,
+# so every formerly-leaking field is now deterministic and compared
+# strictly. Add a field here only while a newly found leak awaits its fix.
+KNOWN_P2: set = set()
 
 
 def _split(node, p2_bag, path=""):
