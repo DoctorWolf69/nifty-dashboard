@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import statistics
@@ -118,6 +119,53 @@ VELOCITY_1M_SEC = 60
 VELOCITY_5M_SEC = 300
 VELOCITY_15M_SEC = 900
 PLAYBOOK_WATCH_STRIKES = (23100, 23200)
+
+# Bump on any decision-logic change. Together with engine_config_hash() this
+# keys every derived cache (replay timelines), so a threshold edit can never
+# silently serve decisions computed under the old rules.
+ENGINE_VERSION = "2.1.0"
+
+
+def engine_config_hash() -> str:
+    """Short hash over every decision-affecting module constant.
+
+    Commission settings are env-driven per instance and not covered here —
+    changing .env commission values still needs a manual cache rebuild.
+    """
+    payload = {
+        "KEY_AREA_DISTANCE_PCT": KEY_AREA_DISTANCE_PCT,
+        "SUSTAINED_ADD_MINUTES": SUSTAINED_ADD_MINUTES,
+        "MIN_POSITIVE_MINUTE_ADDS": MIN_POSITIVE_MINUTE_ADDS,
+        "MIN_VOLUME_CONFIRMED_MINUTES": MIN_VOLUME_CONFIRMED_MINUTES,
+        "MAX_OPEN_SIGNALS": MAX_OPEN_SIGNALS,
+        "MAX_SIGNAL_STRIKE_DISTANCE_PTS": MAX_SIGNAL_STRIKE_DISTANCE_PTS,
+        "MIN_OPEN_STRIKE_SPACING": MIN_OPEN_STRIKE_SPACING,
+        "SINGLE_DIRECTION_BOOK": SINGLE_DIRECTION_BOOK,
+        "BLOCK_SAME_THESIS_STACK": BLOCK_SAME_THESIS_STACK,
+        "REQUIRE_PE_SPOT_CONFIRM_FOR_BUY_CE": REQUIRE_PE_SPOT_CONFIRM_FOR_BUY_CE,
+        "REQUIRE_SPOT_WEAK_FOR_BUY_PE": REQUIRE_SPOT_WEAK_FOR_BUY_PE,
+        "GAMMA_NEAR_SPOT_PCT": GAMMA_NEAR_SPOT_PCT,
+        "GAMMA_HEAVY_OI_MIN": GAMMA_HEAVY_OI_MIN,
+        "GAMMA_UNWIND_DELTA_MIN": GAMMA_UNWIND_DELTA_MIN,
+        "LATE_SESSION_SIGNAL_CUTOFF": LATE_SESSION_SIGNAL_CUTOFF,
+        "GAP_PLAYBOOK_THRESHOLD": GAP_PLAYBOOK_THRESHOLD,
+        "PLAYBOOK_VELOCITY_ADD_PCT": PLAYBOOK_VELOCITY_ADD_PCT,
+        "PLAYBOOK_VELOCITY_UNWIND_PCT": PLAYBOOK_VELOCITY_UNWIND_PCT,
+        "PLAYBOOK_SPOT_FLAT_PTS": PLAYBOOK_SPOT_FLAT_PTS,
+        "PLAYBOOK_WATCH_STRIKES": PLAYBOOK_WATCH_STRIKES,
+        "CONVICTION_LEVEL_SCORE": CONVICTION_LEVEL_SCORE,
+        "CONVICTION_FADE_DROP": CONVICTION_FADE_DROP,
+        "CONVICTION_FADE_STREAK": CONVICTION_FADE_STREAK,
+        "CONFIRMATION_LOST_MIN": CONFIRMATION_LOST_MIN,
+        "VELOCITY_1M_SEC": VELOCITY_1M_SEC,
+        "VELOCITY_5M_SEC": VELOCITY_5M_SEC,
+        "VELOCITY_15M_SEC": VELOCITY_15M_SEC,
+        "TRADE_MIN_CONFLUENCE": TRADE_MIN_CONFLUENCE,
+    }
+    return hashlib.sha1(
+        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:8]
+
 
 DESK_PRINCIPLES = {
     "headline": "Bias is context. Participant action is truth.",

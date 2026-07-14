@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from nifty.paths import DATA_DIR
 from nifty.dashboard.clock import CLOCK
-from nifty.dashboard.state import OIVelocityState
+from nifty.dashboard.state import ENGINE_VERSION, OIVelocityState, engine_config_hash
 from nifty.replay import loader
 
 STEP_SEC = 30.0          # frame + evaluation cadence (slider granularity)
@@ -31,7 +31,9 @@ REPLAY_OUT = DATA_DIR / "replay"
 
 
 def _timeline_path(day: str) -> Path:
-    return REPLAY_OUT / f"timeline_{day}.json.gz"
+    # Version-keyed: a threshold or logic change must never serve frames
+    # computed under the old rules. Old-version files are simply ignored.
+    return REPLAY_OUT / f"timeline_{day}_{ENGINE_VERSION}_{engine_config_hash()}.json.gz"
 
 
 def _epoch(ts: str) -> float:
