@@ -254,6 +254,29 @@ def connect_market_stream(
 def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
     app = FastAPI(title="NIFTY OI Velocity Dashboard", version="0.1.0")
 
+    # ENGINE_LOOP=1: the engine evaluates on its own cadence and keeps trading
+    # (paper) with no browser attached; HTTP serves the cached projection.
+    # Unset (default): legacy behavior — every /api/state poll runs the full
+    # pipeline. Flip the default after an observed live week.
+    engine_loop_enabled = os.getenv("ENGINE_LOOP", "").strip() == "1"
+
+    async def _engine_loop() -> None:
+        interval = float(os.getenv("ENGINE_LOOP_INTERVAL", "1.0"))
+        loop = asyncio.get_running_loop()
+        while True:
+            t0 = loop.time()
+            try:
+                state.projection = await asyncio.to_thread(state.snapshot)
+            except Exception as exc:  # keep the loop alive; a dead loop = unmanaged book
+                print(f"[{ist_now()}] engine loop error: {exc}")
+            await asyncio.sleep(max(0.1, interval - (loop.time() - t0)))
+
+    @app.on_event("startup")
+    async def _start_engine_loop() -> None:
+        if engine_loop_enabled:
+            print(f"[{ist_now()}] engine loop ON (interval {os.getenv('ENGINE_LOOP_INTERVAL', '1.0')}s)")
+            asyncio.create_task(_engine_loop())
+
     @app.get("/", response_class=HTMLResponse)
     async def home() -> str:
         return _INDEX_HTML
@@ -264,6 +287,8 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
 
     @app.get("/api/state")
     async def api_state() -> JSONResponse:
+        if engine_loop_enabled and state.projection is not None:
+            return JSONResponse(state.projection)
         payload = await asyncio.to_thread(state.snapshot)
         return JSONResponse(payload)
 
@@ -281,7 +306,10 @@ def create_app(state: OIVelocityState, args: argparse.Namespace) -> FastAPI:
 
     @app.get("/api/signals")
     async def api_signals() -> JSONResponse:
-        snapshot = state.snapshot()
+        if engine_loop_enabled and state.projection is not None:
+            snapshot = state.projection
+        else:
+            snapshot = await asyncio.to_thread(state.snapshot)
         return JSONResponse(
             {
                 "signals": snapshot.get("signals", []),

@@ -476,6 +476,10 @@ class OIVelocityState:
         self.futures: Dict[int, InstrumentState] = {}
         self.futures_eod_context: Dict[str, Any] = {}
         self.futures_layer: Dict[str, Any] = {}
+        # Latest project() payload, written only by the engine loop; HTTP
+        # serves this reference (atomic swap) instead of re-running the
+        # pipeline per poll when ENGINE_LOOP=1.
+        self.projection: Optional[Dict[str, Any]] = None
         self.signals: List[Dict[str, Any]] = []
         self.last_signal_ts_by_key: Dict[str, float] = {}
         self.next_signal_id = 1
@@ -2437,7 +2441,11 @@ class OIVelocityState:
             )
         return payload
 
-    def snapshot(self) -> Dict[str, Any]:
+    def evaluate(self) -> Dict[str, Any]:
+        """One full pipeline pass — MUTATES the engine: journals alerts,
+        updates/generates paper signals, refreshes analytics and playbook.
+        Returns the intermediates project() needs. Only the engine loop and
+        replay may call this; HTTP routes must serve project() output."""
         self._restore_orb_levels()
         self.refresh_session_context()
         self.refresh_morning_context()
@@ -2579,6 +2587,32 @@ class OIVelocityState:
         self._refresh_options_analytics(paired_rows)
         playbook = self._detect_intraday_playbook(rows, paired_rows, abnormal_alerts)
         self._maybe_generate_signals(abnormal_alerts, rows, paired_rows, playbook=playbook)
+        return {
+            "rows": rows,
+            "paired_rows": paired_rows,
+            "strongest_ce_add": strongest_ce_add,
+            "strongest_pe_add": strongest_pe_add,
+            "abnormal_alerts": abnormal_alerts,
+            "median_1m": median_1m,
+            "median_5m": median_5m,
+            "median_15m": median_15m,
+            "gamma_state": gamma_state,
+            "playbook": playbook,
+        }
+
+    def project(self, ev: Dict[str, Any]) -> Dict[str, Any]:
+        """Assemble the API payload from evaluate()'s intermediates.
+        Read-only apart from the futures_layer display cache."""
+        rows = ev["rows"]
+        paired_rows = ev["paired_rows"]
+        strongest_ce_add = ev["strongest_ce_add"]
+        strongest_pe_add = ev["strongest_pe_add"]
+        abnormal_alerts = ev["abnormal_alerts"]
+        median_1m = ev["median_1m"]
+        median_5m = ev["median_5m"]
+        median_15m = ev["median_15m"]
+        gamma_state = ev["gamma_state"]
+        playbook = ev["playbook"]
         is_expiry = _is_expiry_day(self)
 
         tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
@@ -2687,6 +2721,11 @@ class OIVelocityState:
                 "signal_journal_file": str(SIGNAL_JOURNAL_FILE),
                 "data_store_file": str(self.data_store.db_path) if self.data_store else None,
             }
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Evaluate then project — the legacy per-poll entry point. With the
+        engine loop on, HTTP serves the cached projection instead."""
+        return self.project(self.evaluate())
 
     def _detect_gamma_blast(self, paired_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         zones = []
