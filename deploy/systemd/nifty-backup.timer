@@ -1,0 +1,9 @@
+[Unit]
+Description=NIFTY desk backup 21:30 IST daily (after the 20:15 email job)
+
+[Timer]
+OnCalendar=*-*-* 21:30 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

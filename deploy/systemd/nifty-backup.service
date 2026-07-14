@@ -1,0 +1,15 @@
+[Unit]
+Description=NIFTY desk nightly off-box backup (ticks + journal)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__APPDIR__
+Environment=TZ=Asia/Kolkata
+# REQUIRED: point at a configured rclone remote, e.g. b2:nifty-desk-backup
+# (rclone config as __USER__ first). The script exits 1 if unset, so a
+# missing configuration shows up as a failed unit instead of silence.
+Environment=BACKUP_REMOTE=
+ExecStart=/usr/bin/env bash __APPDIR__/deploy/backup.sh __APPDIR__

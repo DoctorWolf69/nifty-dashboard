@@ -1,0 +1,9 @@
+[Unit]
+Description=NIFTY desk retention 22:30 IST daily (an hour after backup)
+
+[Timer]
+OnCalendar=*-*-* 22:30 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

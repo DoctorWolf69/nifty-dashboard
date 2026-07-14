@@ -1,0 +1,10 @@
+[Unit]
+Description=NIFTY desk 30-day retention (ticks + replay caches)
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__APPDIR__
+Environment=TZ=Asia/Kolkata
+Environment=RETENTION_DAYS=30
+ExecStart=/usr/bin/env bash __APPDIR__/deploy/retention.sh __APPDIR__
