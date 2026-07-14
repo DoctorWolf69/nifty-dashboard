@@ -1612,8 +1612,9 @@ class OIVelocityState:
     ) -> List[Dict[str, Any]]:
         """Score every writer alert, journal for review, return ranked candidates."""
         is_expiry = _is_expiry_day(self)
-        in_orb = is_no_trade_window(is_expiry=is_expiry) or is_nifty_options_blocked(is_expiry=is_expiry)
-        late = is_late_session()
+        gate_now = CLOCK.now()
+        in_orb = is_no_trade_window(gate_now, is_expiry=is_expiry) or is_nifty_options_blocked(gate_now, is_expiry=is_expiry)
+        late = is_late_session(gate_now)
         open_signals = self._open_signals()
         open_strikes = [as_int(signal.get("strike")) for signal in open_signals]
         open_decisions = {str(signal.get("decision")) for signal in open_signals}
@@ -1708,7 +1709,8 @@ class OIVelocityState:
     ) -> None:
         """Open at most one paper position from highest-scoring eligible candidate."""
         is_expiry = _is_expiry_day(self)
-        if is_no_trade_window(is_expiry=is_expiry) or is_nifty_options_blocked(is_expiry=is_expiry) or is_late_session():
+        gate_now = CLOCK.now()
+        if is_no_trade_window(gate_now, is_expiry=is_expiry) or is_nifty_options_blocked(gate_now, is_expiry=is_expiry) or is_late_session(gate_now):
             return
         if len(self._open_signals()) >= MAX_OPEN_SIGNALS:
             return
@@ -2614,6 +2616,7 @@ class OIVelocityState:
         gamma_state = ev["gamma_state"]
         playbook = ev["playbook"]
         is_expiry = _is_expiry_day(self)
+        gate_now = CLOCK.now()
 
         tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
         stream_alive = tick_age_sec is not None and tick_age_sec <= 20
@@ -2683,15 +2686,15 @@ class OIVelocityState:
                     "require_spot_weak_for_buy_pe": REQUIRE_SPOT_WEAK_FOR_BUY_PE,
                     "is_expiry_day": is_expiry,
                     "orb_no_trade_window": no_trade_window_label(is_expiry),
-                    "orb_no_trade_active": is_no_trade_window(is_expiry=is_expiry),
-                    "orb_no_trade_seconds_remaining": orb_no_trade_seconds_remaining(is_expiry=is_expiry),
-                    "nifty_options_blocked": is_nifty_options_blocked(is_expiry=is_expiry),
+                    "orb_no_trade_active": is_no_trade_window(gate_now, is_expiry=is_expiry),
+                    "orb_no_trade_seconds_remaining": orb_no_trade_seconds_remaining(gate_now, is_expiry=is_expiry),
+                    "nifty_options_blocked": is_nifty_options_blocked(gate_now, is_expiry=is_expiry),
                     "late_session_cutoff": f"{LATE_SESSION_SIGNAL_CUTOFF[0]:02d}:{LATE_SESSION_SIGNAL_CUTOFF[1]:02d} IST",
-                    "late_session_active": is_late_session(),
+                    "late_session_active": is_late_session(gate_now),
                     "fresh_entries_allowed": (
-                        not is_no_trade_window(is_expiry=is_expiry)
-                        and not is_nifty_options_blocked(is_expiry=is_expiry)
-                        and not is_late_session()
+                        not is_no_trade_window(gate_now, is_expiry=is_expiry)
+                        and not is_nifty_options_blocked(gate_now, is_expiry=is_expiry)
+                        and not is_late_session(gate_now)
                     ),
                     "gap_playbook_threshold": GAP_PLAYBOOK_THRESHOLD,
                     "mild_gap_threshold": MILD_GAP_THRESHOLD,
