@@ -19,11 +19,8 @@ Start at 9:15 IST open — not mid-session.
 
 from __future__ import annotations
 
-import argparse
-import asyncio
 import hashlib
 import json
-import os
 import statistics
 import threading
 import sqlite3
@@ -32,10 +29,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
-
-from dotenv import load_dotenv
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
 
 from nifty.core.sessions import (
     TECH_LEVEL_TOLERANCE,
@@ -62,15 +55,6 @@ from nifty.analytics.confluence import (
     TRADE_MIN_CONFLUENCE,
     score_signal_candidate,
 )
-
-try:
-    from kiteconnect import KiteConnect, KiteTicker
-except ImportError as exc:  # pragma: no cover - runtime setup check
-    raise SystemExit(
-        "Missing dependency: kiteconnect. Run `pip install kiteconnect` or "
-        "`pip install -r requirements.txt` after adding it."
-    ) from exc
-
 
 NSE_NIFTY_SYMBOL = "NSE:NIFTY 50"
 NIFTY_LOT_SIZE = 65
@@ -554,7 +538,9 @@ class OIVelocityState:
         self.expiry = ""
         self.session_context: Dict[str, Any] = {}
         self.session_context_updated_at = 0.0
-        self._kite: Optional[KiteConnect] = None
+        # Broker REST handle (duck-typed KiteConnect), injected via set_kite()
+        # by the provider; the engine itself never imports the broker SDK.
+        self._kite: Optional[Any] = None
         self.commission_cfg = CommissionConfig.from_env(str(ENV_FILE))
         self.rejected_signals: List[Dict[str, Any]] = []
         self.signal_candidates: List[Dict[str, Any]] = []
@@ -1093,7 +1079,7 @@ class OIVelocityState:
             return {}
         return best
 
-    def set_kite(self, kite: Optional[KiteConnect]) -> None:
+    def set_kite(self, kite: Optional[Any]) -> None:
         self._kite = kite
         if kite is not None:
             self.refresh_session_context(force=True)

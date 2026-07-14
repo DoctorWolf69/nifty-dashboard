@@ -9,12 +9,8 @@ from datetime import datetime
 
 from nifty.storage import SlimTickStore
 from nifty.dashboard.state import OIVelocityState, LiveDataStore, DATA_DIR, ist_now
-from nifty.dashboard.app import (
-    load_kite,
-    env_credentials,
-    connect_market_stream,
-    create_app,
-)
+from nifty.dashboard.app import create_app
+from nifty.kite.provider import connect_market_stream, env_credentials, load_kite
 
 
 def parse_args() -> argparse.Namespace:
