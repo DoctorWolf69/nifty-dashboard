@@ -28,6 +28,11 @@ pre-P2 engine. The three suppressed signals were only ever possible because
 the gates read the build machine's wall clock — they are trades the live desk
 would have blocked (ORB window / late session / non-expiry rules).
 
+**Corrected backtest, 19 Jun 2026** (engine 2.1.0 / config 9872b249): 25 signals,
+10W/15L, net **−₹2,110.21**, PF 0.69, win rate 40%. Replaces the previously quoted
+"17 signals, 7W/10L, net −₹1,741, PF 0.72" — that figure came from the wall-clock-bugged
+engine and must not be quoted again.
+
 **Consequences to be aware of:**
 - Backtest results produced before this date measured an engine with
   wrong-day expiry rules, empty/garbage IV, wrong-day FII context, and
