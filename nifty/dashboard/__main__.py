@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import uvicorn
 from datetime import datetime
 
+from nifty.storage import SlimTickStore
 from nifty.dashboard.state import OIVelocityState, LiveDataStore, DATA_DIR, ist_now
 from nifty.dashboard.app import (
     load_kite,
@@ -36,6 +38,14 @@ def main() -> None:
         data_store = LiveDataStore(db_path)
         data_store.connect()
     state = OIVelocityState(data_store=data_store)
+    # Dual-write window (Migration Phase 3): the slim change-only store runs
+    # alongside the legacy per-tick store. Compare a live day with
+    # `python tests/verify_slim.py <day>`; SLIM_STORE=0 disables.
+    if not args.no_persist and os.getenv("SLIM_STORE", "1").strip() != "0":
+        slim = SlimTickStore(DATA_DIR / f"nifty_slim_{datetime.now().strftime('%Y-%m-%d')}.sqlite")
+        slim.start()
+        state.slim_store = slim
+        print(f"[{ist_now()}] slim tick store: {slim.db_path.name}")
     kite = load_kite()
 
     if kite is None:

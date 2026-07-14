@@ -521,6 +521,9 @@ class OIVelocityState:
         self.replay_dir = replay_dir
         self.lock = threading.RLock()
         self.data_store = None if replay_dir is not None else data_store
+        # Optional slim sink (nifty.storage.SlimTickStore), wired by __main__
+        # for the live path only; replay never persists ticks.
+        self.slim_store: Optional[Any] = None
         self.instruments: Dict[int, InstrumentState] = {}
         self.futures: Dict[int, InstrumentState] = {}
         self.futures_layer: Dict[str, Any] = {}
@@ -1216,6 +1219,8 @@ class OIVelocityState:
             self.expiry = expiry
             if spot >= 15_000:
                 self.spot_history.append((CLOCK.time(), spot))
+        if self.slim_store is not None:
+            self.slim_store.register_instruments(self.instruments.values())
         self._load_signals_from_journal()
         self._backfill_paper_trade_journal()
 
@@ -1306,7 +1311,7 @@ class OIVelocityState:
                     now = CLOCK.time()
                     if self.spot >= 15_000:
                         self.spot_history.append((now, self.spot))
-                    if self.data_store is not None:
+                    if self.data_store is not None or self.slim_store is not None:
                         db_spot = (
                             ist_now(),
                             self.spot,
@@ -1325,7 +1330,7 @@ class OIVelocityState:
                 item = self.instruments.get(token)
                 if item is not None:
                     item.update_from_tick(tick)
-                    if self.data_store is not None:
+                    if self.data_store is not None or self.slim_store is not None:
                         db_options.append(item)
                     continue
                 fut = self.futures.get(token)
@@ -1348,6 +1353,24 @@ class OIVelocityState:
                 )
             for item in db_options:
                 self.data_store.insert_option_tick(item)
+        if self.slim_store is not None:
+            # Dual-write (Migration Phase 3): enqueue only — change filtering,
+            # batching and candle rollup happen on the slim writer thread.
+            epoch = int(CLOCK.time())
+            if db_spot is not None:
+                self.slim_store.on_spot_tick(epoch, db_spot[1])
+            for item in db_options:
+                best_bid = item.depth_buy[0] if item.depth_buy else {}
+                best_ask = item.depth_sell[0] if item.depth_sell else {}
+                self.slim_store.on_option_tick(
+                    item.token,
+                    epoch,
+                    ltp=item.last_price,
+                    oi=item.oi,
+                    volume=item.volume,
+                    bid=as_float(best_bid.get("price")) or None,
+                    ask=as_float(best_ask.get("price")) or None,
+                )
 
     def set_status(self, status: str, error: Optional[str] = None) -> None:
         with self.lock:
