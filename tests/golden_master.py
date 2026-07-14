@@ -85,9 +85,9 @@ def _diffs(a, b, path="$", out=None):
             if len(out) >= DIFF_CAP:
                 break
             if key not in a:
-                out.append(f"{path}.{key}: only in new run")
-            elif key not in b:
                 out.append(f"{path}.{key}: only in fixture")
+            elif key not in b:
+                out.append(f"{path}.{key}: only in new run")
             else:
                 _diffs(a[key], b[key], f"{path}.{key}", out)
     elif isinstance(a, list):

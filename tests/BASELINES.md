@@ -5,6 +5,16 @@ what moved and why. A re-capture without an entry is a process violation.
 
 ---
 
+## 2026-07-14 (later) — Broker-failover payload keys
+
+**Fixture:** re-captured after adding the Dhan warm-standby failover.
+Evidence run showed exactly two additive diffs per frame and nothing else:
+`payload.active_provider` (constant "kite" in replay) and
+`payload.broker_timeline` (empty in replay — providers never attach there).
+No decision field moved; signals unchanged at 25.
+
+---
+
 ## 2026-07-14 — Post Migration-Phase-2 baseline (replay fidelity)
 
 **Fixture:** `golden_2026-06-19.json.gz`, engine `2.1.0`, config `9872b249`.

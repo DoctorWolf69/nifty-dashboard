@@ -1134,16 +1134,46 @@
           clearTimeout(timer);
         }
       }
+      function renderBrokerTimeline(data) {
+        // Broker audit strip: which feed is live now + the last transitions
+        // (CONNECTED / CLOSED / STANDBY / ACTIVE-failover). Self-mounting so
+        // no HTML changes are needed; hidden in replay.
+        let el = document.getElementById("brokerTimeline");
+        if (!el) {
+          const anchor = document.getElementById("streamBanner");
+          if (!anchor || !anchor.parentNode) return;
+          el = document.createElement("div");
+          el.id = "brokerTimeline";
+          el.style.cssText = "font-size:0.78rem;color:#9ca3af;margin:4px 0 8px;line-height:1.6;";
+          anchor.parentNode.insertBefore(el, anchor.nextSibling);
+        }
+        if (window.REPLAY_MODE) { el.style.display = "none"; return; }
+        const active = (data.active_provider || "kite").toUpperCase();
+        const color = active === "KITE" ? "#4ade80" : "#fbbf24";
+        const badge = `<span style="color:${color};font-weight:600">feed: ${active}</span>`;
+        const events = (data.broker_timeline || []).slice(-8).reverse();
+        const items = events.map((e) => {
+          const t = String(e.at || "").slice(11, 19);
+          const tone = e.event === "ACTIVE" ? "#fbbf24"
+            : (e.event === "CONNECTED" || e.event === "STANDBY") ? "#4ade80"
+            : (e.event === "CLOSED" || e.event === "ERROR" || e.event === "SETUP_FAILED") ? "#f87171"
+            : "#9ca3af";
+          return `<span style="white-space:nowrap">${t} <span style="color:${tone}">${e.provider}:${e.event}</span>${e.detail ? " <span title=\"" + String(e.detail).replace(/"/g, "&quot;") + "\">ⓘ</span>" : ""}</span>`;
+        }).join(" · ");
+        el.innerHTML = events.length ? `${badge} — ${items}` : badge;
+      }
       function applyData(data) {
+        renderBrokerTimeline(data);
         const rules = data.signal_rules || {};
         const orbTag = rules.orb_no_trade_active
           ? ` | ⏸ ${rules.is_expiry_day ? "EXPIRY WATCH until 9:45" : "ORB WATCH until 9:30"}`
           : "";
+        const feedName = (data.active_provider || "kite").toUpperCase();
         const streamTag = window.REPLAY_MODE
           ? " | REPLAY"
           : (data.stream_alive
-            ? " | Kite LIVE"
-            : ` | <span class="bad">Kite STALE${data.tick_age_sec != null ? " " + data.tick_age_sec + "s" : ""} — refresh page or restart dashboard</span>`);
+            ? ` | ${feedName} LIVE${feedName !== "KITE" ? " (failover)" : ""}`
+            : ` | <span class="bad">${feedName} STALE${data.tick_age_sec != null ? " " + data.tick_age_sec + "s" : ""} — refresh page or restart dashboard</span>`);
         const banner = document.getElementById("streamBanner");
         if (window.REPLAY_MODE) {
           banner.style.display = "none";
