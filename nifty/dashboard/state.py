@@ -1594,6 +1594,7 @@ class OIVelocityState:
             prev_net_dealer_delta=self._prev_net_dealer_delta,
             india_vix=india_vix,
             iv_store=self._iv_store,
+            now=CLOCK.now(),
         )
         if not payload.get("error"):
             self._prev_net_dealer_delta = as_float(payload.get("net_dealer_delta"))

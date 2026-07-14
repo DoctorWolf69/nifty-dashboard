@@ -165,14 +165,14 @@ class IVHistoryStore:
         if self.intraday and abs(self.intraday[-1][1] - atm_iv) < 0.05:
             return
         self.intraday.append((stamp, atm_iv))
-        today = date.today().isoformat()
+        today = datetime.fromtimestamp(stamp).date().isoformat()
         last_daily = getattr(self, "_last_daily_write", "")
         if last_daily != today:
             self.samples.append(atm_iv)
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(
-                    json.dumps({"date": today, "atm_iv": atm_iv, "recorded_at": datetime.now().isoformat()})
+                    json.dumps({"date": today, "atm_iv": atm_iv, "recorded_at": datetime.fromtimestamp(stamp).isoformat()})
                     + "\n"
                 )
             self._last_daily_write = today
@@ -187,10 +187,10 @@ class IVHistoryStore:
         pct = round((below / len(values)) * 100, 1)
         return {"iv_rank": rank, "iv_percentile": pct, "sample_count": len(values)}
 
-    def iv_velocity(self, atm_iv: float, seconds: int = 300) -> Optional[float]:
+    def iv_velocity(self, atm_iv: float, seconds: int = 300, now_ts: Optional[float] = None) -> Optional[float]:
         if atm_iv <= 0 or not self.intraday:
             return None
-        cutoff = datetime.now().timestamp() - seconds
+        cutoff = (now_ts or datetime.now().timestamp()) - seconds
         old_iv = None
         for ts, iv in self.intraday:
             if ts <= cutoff:
@@ -232,12 +232,18 @@ def analyze_option_chain(
     prev_net_dealer_delta: Optional[float] = None,
     india_vix: Optional[float] = None,
     iv_store: Optional[IVHistoryStore] = None,
+    now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
-    """Build Phases 7–9 payload from live paired CE/PE rows."""
+    """Build Phases 7–9 payload from live paired CE/PE rows.
+
+    `now` is the engine clock (naive IST). Without it, replay computed
+    time-to-expiry against the wall clock - already-expired for archived
+    days, so IV solve and greeks silently emptied out."""
     if spot <= 0 or not paired_rows:
         return {"error": "no_chain_data"}
 
-    t = year_fraction_to_expiry(expiry)
+    t = year_fraction_to_expiry(expiry, now)
+    now_ts = (now or datetime.now()).timestamp()
     strikes = sorted(_as_int(row.get("strike")) for row in paired_rows)
     atm_strike = min(strikes, key=lambda k: abs(k - spot)) if strikes else 0
 
@@ -320,11 +326,11 @@ def analyze_option_chain(
     if atm_ce_iv and atm_pe_iv:
         iv_skew = round(atm_pe_iv - atm_ce_iv, 4)
 
-    iv_velocity = iv_store.iv_velocity(atm_iv or 0.0) if iv_store and atm_iv else None
+    iv_velocity = iv_store.iv_velocity(atm_iv or 0.0, now_ts=now_ts) if iv_store and atm_iv else None
     iv_stats = iv_store.rank_percentile(atm_iv or 0.0) if iv_store and atm_iv else {"iv_rank": None, "iv_percentile": None}
 
     if iv_store and atm_iv:
-        iv_store.record(atm_iv)
+        iv_store.record(atm_iv, ts=now_ts)
 
     expected_move_pts = round(spot * (atm_iv or 0.15) * math.sqrt(max(t, 1 / 252)), 2) if atm_iv else round(atm_straddle, 2)
 
