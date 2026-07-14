@@ -188,33 +188,6 @@ def iter_tick_groups(
         conn.close()
 
 
-def load_day_dataframes(day: str, market_hours: bool = True):
-    """(options_df, spot_df) for ad-hoc backtesting; depth JSON parsed into columns.
-
-    Requires pandas (already a project dependency).
-    """
-    import pandas as pd
-
-    conn = _connect(day)
-    try:
-        where = ""
-        params: Tuple[Any, ...] = ()
-        if market_hours:
-            where = "WHERE ts >= ? AND ts <= ?"
-            params = (f"{day} {SESSION_START}", f"{day} {SESSION_END}")
-        opts = pd.read_sql(f"SELECT * FROM option_ticks {where} ORDER BY ts", conn, params=params)
-        spot = pd.read_sql(f"SELECT * FROM spot_ticks {where} ORDER BY ts", conn, params=params)
-    finally:
-        conn.close()
-    if not opts.empty:
-        opts["depth_buy"] = opts["depth_buy_json"].map(_parse_depth)
-        opts["depth_sell"] = opts["depth_sell_json"].map(_parse_depth)
-        opts["ts_dt"] = pd.to_datetime(opts["ts"])
-    if not spot.empty:
-        spot["ts_dt"] = pd.to_datetime(spot["ts"])
-    return opts, spot
-
-
 def option_price_path(day: str, tradingsymbol: str, start_ts: str, end_ts: str) -> List[Tuple[str, float]]:
     """(ts, ltp) for one contract between two timestamps — for MFE/MAE in the backtest."""
     conn = _connect(day)

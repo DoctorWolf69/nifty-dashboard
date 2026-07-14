@@ -79,25 +79,12 @@ class NiftyJournalStore:
             dedupe_key=dedupe,
         )
 
-    def append_signal_event(self, event: Dict[str, Any]) -> bool:
-        return self.append_paper_trade(event)
-
     def append_paper_trade(self, event: Dict[str, Any], day: Optional[date] = None) -> bool:
         """All paper lifecycle rows: SIGNAL_GENERATED, SIGNAL_UPDATE, SIGNAL_CLOSED."""
         return self.append_jsonl(
             self._dated_path("nifty_paper_trades", day),
             event,
             dedupe_key=None,
-        )
-
-    def append_signal_rejection(self, rejected: Dict[str, Any], day: Optional[date] = None) -> bool:
-        key = str(rejected.get("signal_key") or "")
-        reason = str(rejected.get("reason") or "")
-        dedupe = f"rej:{key}:{reason}:{ist_now()[:16]}"
-        return self.append_jsonl(
-            self._dated_path("nifty_signal_rejected", day),
-            rejected,
-            dedupe_key=dedupe,
         )
 
     @staticmethod

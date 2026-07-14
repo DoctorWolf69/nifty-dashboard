@@ -490,11 +490,6 @@ def render_report_html(trade_date: date, summary: Optional[Dict[str, Any]] = Non
 </html>"""
 
 
-def build_trade_list_html(trade_date: date) -> str:
-    """Back-compat wrapper — the trade list is now the full performance report."""
-    return render_report_html(trade_date)
-
-
 def _load_signal_candidates(trade_date: str) -> List[Dict[str, Any]]:
     return _load_jsonl(JOURNAL_DIR / f"nifty_signal_candidates_{trade_date}.jsonl")
 

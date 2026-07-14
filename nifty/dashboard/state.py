@@ -25,7 +25,6 @@ import json
 import os
 import statistics
 import threading
-import time
 import sqlite3
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -36,13 +35,11 @@ from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
-import uvicorn
 
 from nifty.core.sessions import (
     TECH_LEVEL_TOLERANCE,
     build_session_context,
     near_technical_level,
-    technical_level_labels,
 )
 from nifty.core.commission import (
     CommissionConfig,
@@ -166,10 +163,6 @@ def _is_expiry_day(state: "VelocityState") -> bool:
     if state.expiry and str(state.expiry)[:10] == today:
         return True
     return is_expiry_session(trade_date=CLOCK.today())
-
-
-def is_orb_no_trade_window(now: Optional[datetime] = None, *, is_expiry: bool = False) -> bool:
-    return is_no_trade_window(now, is_expiry=is_expiry)
 
 
 def orb_no_trade_seconds_remaining(now: Optional[datetime] = None, *, is_expiry: bool = False) -> int:
@@ -1407,43 +1400,6 @@ class OIVelocityState:
     def _open_signals(self) -> List[Dict[str, Any]]:
         return [signal for signal in self.signals if signal.get("status") == "OPEN"]
 
-    def _signal_candidate_score(self, alert: Dict[str, Any]) -> float:
-        strike = as_int(alert.get("strike"))
-        v5 = alert.get("velocity_5m") or {}
-        v1 = alert.get("velocity_1m") or {}
-        dist = abs(self.spot - strike) if self.spot > 0 else 999.0
-        return (
-            as_float(v5.get("pct")) * 10.0
-            + as_float(v1.get("pct")) * 5.0
-            + as_float(v5.get("delta")) / 250_000.0
-            - dist / 40.0
-        )
-
-    def _record_signal_rejection(
-        self,
-        *,
-        reason: str,
-        alert: Dict[str, Any],
-        decision: str,
-        strike: int,
-        detail: str = "",
-    ) -> None:
-        rejected = {
-            "event": "SIGNAL_REJECTED",
-            "rejected_at": ist_now(),
-            "signal_key": f"{strike}:{alert.get('option_type')}:{decision}",
-            "decision": decision,
-            "strike": strike,
-            "reason": reason,
-            "detail": detail,
-            "source_alert": alert,
-            "desk_context": self.journal.build_signal_context(self),
-            "paper_only": True,
-        }
-        self.rejected_signals.insert(0, rejected)
-        self.rejected_signals = self.rejected_signals[:50]
-        self.journal.append_signal_rejection(rejected)
-
     def _update_open_signals(
         self,
         rows: List[Dict[str, Any]],
@@ -2481,10 +2437,7 @@ class OIVelocityState:
             )
         return payload
 
-    def snapshot(self, light: bool = False) -> Dict[str, Any]:
-        # light=True runs the full signal pipeline (writer-adds, OI conviction,
-        # playbook, signal generation) but skips Greeks, futures layer and payload
-        # construction — used by replay to evaluate on cadence cheaply.
+    def snapshot(self) -> Dict[str, Any]:
         self._restore_orb_levels()
         self.refresh_session_context()
         self.refresh_morning_context()
@@ -2623,12 +2576,9 @@ class OIVelocityState:
             self._last_gamma_signal = active_gamma
             self.journal.append_gamma_state(gamma_state)
         self._update_open_signals(rows, paired_rows)
-        if not light:
-            self._refresh_options_analytics(paired_rows)
+        self._refresh_options_analytics(paired_rows)
         playbook = self._detect_intraday_playbook(rows, paired_rows, abnormal_alerts)
         self._maybe_generate_signals(abnormal_alerts, rows, paired_rows, playbook=playbook)
-        if light:
-            return {}
         is_expiry = _is_expiry_day(self)
 
         tick_age_sec = round(CLOCK.time() - self.last_tick_ts, 1) if self.last_tick_ts else None
