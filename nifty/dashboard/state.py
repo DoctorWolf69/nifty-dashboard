@@ -73,7 +73,7 @@ except ImportError as exc:  # pragma: no cover - runtime setup check
 
 NSE_NIFTY_SYMBOL = "NSE:NIFTY 50"
 NIFTY_LOT_SIZE = 65
-from nifty.paths import ENV_FILE, SIGNAL_JOURNAL_FILE, DATA_LIVE_OI as DATA_DIR
+from nifty.paths import ENV_FILE, JOURNAL_DIR, SIGNAL_JOURNAL_FILE, DATA_LIVE_OI as DATA_DIR
 NIFTY_SPOT_TOKEN = 256265
 KEY_AREA_DISTANCE_PCT = 0.35
 SUSTAINED_ADD_MINUTES = 3
@@ -1000,16 +1000,47 @@ class OIVelocityState:
             }
 
     def refresh_session_context(self, force: bool = False) -> None:
-        if self._kite is None:
-            return
         now_ts = CLOCK.time()
         if not force and now_ts - self.session_context_updated_at < 900:
             return
-        with self.lock:
-            spot = self.spot
-        self.session_context = build_session_context(self._kite, spot=spot)
-        self.session_context_updated_at = now_ts
-        self._maybe_journal_session_context()
+        if self._kite is not None:
+            with self.lock:
+                spot = self.spot
+            self.session_context = build_session_context(self._kite, spot=spot)
+            self.session_context_updated_at = now_ts
+            self._maybe_journal_session_context()
+            return
+        # No broker (replay): read back the session context the live desk
+        # journaled that day, cursor-aware, so EMA/pivot technical levels
+        # reach key-area detection exactly as they did live. Without this,
+        # replay ran with empty levels and raised strictly fewer alerts.
+        persisted = self._load_persisted_session_context(CLOCK.now())
+        if persisted:
+            self.session_context = persisted
+            self.session_context_updated_at = now_ts
+
+    @staticmethod
+    def _load_persisted_session_context(now: datetime) -> Dict[str, Any]:
+        """Latest journaled session context at/before `now` for its day."""
+        path = JOURNAL_DIR / f"nifty_session_{now.date().isoformat()}.jsonl"
+        if not path.exists():
+            return {}
+        cutoff = now.strftime("%Y-%m-%d %H:%M:%S")
+        best: Dict[str, Any] = {}
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if str(row.get("recorded_at") or "") > cutoff:
+                    break
+                context = row.get("session_context")
+                if isinstance(context, dict) and context:
+                    best = context
+        except OSError:
+            return {}
+        return best
 
     def set_kite(self, kite: Optional[KiteConnect]) -> None:
         self._kite = kite
