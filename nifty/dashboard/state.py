@@ -2038,6 +2038,7 @@ class OIVelocityState:
             expiry = self.expiry
         self.morning_context = self._live_morning.refresh(
             spot,
+            day=CLOCK.today(),
             day_open=day_open,
             day_high=day_high,
             day_low=day_low,

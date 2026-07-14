@@ -190,11 +190,13 @@ class LiveMorningContext:
         self.loaded = False
         self.journal_loaded_at = 0.0
         self.oi_refreshed_at = 0.0
+        self.bundle_day: Optional[date] = None
 
     def refresh(
         self,
         spot: float,
         *,
+        day: Optional[date] = None,
         day_open: float = 0.0,
         day_high: float = 0.0,
         day_low: float = 0.0,
@@ -205,9 +207,15 @@ class LiveMorningContext:
         force_journal: bool = False,
     ) -> Dict[str, Any]:
         now = time.time()
-        if force_journal or not self.loaded or (now - self.journal_loaded_at) >= JOURNAL_RELOAD_SECONDS:
-            self.bundle = load_morning_bundle()
+        if (
+            force_journal
+            or not self.loaded
+            or day != self.bundle_day
+            or (now - self.journal_loaded_at) >= JOURNAL_RELOAD_SECONDS
+        ):
+            self.bundle = load_morning_bundle(day)
             self.loaded = True
+            self.bundle_day = day
             self.journal_loaded_at = now
 
         refresh_oi = spot > 0 and (now - self.oi_refreshed_at) >= OI_REFRESH_SECONDS
