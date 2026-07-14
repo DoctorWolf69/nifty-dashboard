@@ -55,6 +55,7 @@ from nifty.analytics.futures import (
     build_futures_layer,
     evaluate_fut_opt_alignment,
     load_eod_futures_context,
+    previous_trading_day,
 )
 from nifty.analytics.confluence import (
     TRADE_MIN_CONFLUENCE,
@@ -474,7 +475,6 @@ class OIVelocityState:
         self.data_store = None if replay_dir is not None else data_store
         self.instruments: Dict[int, InstrumentState] = {}
         self.futures: Dict[int, InstrumentState] = {}
-        self.futures_eod_context: Dict[str, Any] = {}
         self.futures_layer: Dict[str, Any] = {}
         # Latest project() payload, written only by the engine loop; HTTP
         # serves this reference (atomic swap) instead of re-running the
@@ -535,7 +535,10 @@ class OIVelocityState:
         self._bias_verdict = "INIT"
         self._session_open_gap: Dict[str, Any] = {}
         self._orb_restore_attempted = False
-        self.futures_eod_context = load_eod_futures_context()
+        # Loaded lazily on the first evaluate() so replay's frozen clock (not
+        # construction-time wall clock) picks the filing day: replaying 19 Jun
+        # used to pull FII/DII positioning for *today* into the macro blocker.
+        self.futures_eod_context: Optional[Dict[str, Any]] = None
 
     def set_futures(self, futures: Iterable[InstrumentState]) -> None:
         with self.lock:
@@ -2448,6 +2451,10 @@ class OIVelocityState:
         updates/generates paper signals, refreshes analytics and playbook.
         Returns the intermediates project() needs. Only the engine loop and
         replay may call this; HTTP routes must serve project() output."""
+        if self.futures_eod_context is None:
+            self.futures_eod_context = load_eod_futures_context(
+                previous_trading_day(CLOCK.today())
+            )
         self._restore_orb_levels()
         self.refresh_session_context()
         self.refresh_morning_context()
