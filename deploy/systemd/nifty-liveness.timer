@@ -1,0 +1,10 @@
+[Unit]
+Description=NIFTY desk liveness tripwire 09:25 IST (zero ticks => red unit + email)
+
+[Timer]
+OnCalendar=Mon..Fri 09:25 Asia/Kolkata
+Persistent=false
+Unit=nifty-job@liveness.service
+
+[Install]
+WantedBy=timers.target

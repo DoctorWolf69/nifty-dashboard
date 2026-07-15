@@ -35,7 +35,8 @@ systemctl enable --now \
   nifty-eod-filing.timer \
   nifty-email-report.timer \
   nifty-backup.timer \
-  nifty-retention.timer
+  nifty-retention.timer \
+  nifty-liveness.timer
 
 # Always-on replay/backtest service (independent of market hours).
 systemctl enable --now nifty-replay.service

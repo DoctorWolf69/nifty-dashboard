@@ -131,6 +131,74 @@ def cmd_email_report(_args: argparse.Namespace) -> None:
     _delegate(email_report.main, ["email_report"])
 
 
+def cmd_liveness(_args: argparse.Namespace) -> None:
+    """09:25 IST tripwire: the desk must have ticks by now on a trading day.
+
+    Exists because the desk ran DARK from 26 Jun to 15 Jul 2026 - no Kite
+    login, zero ticks, while every timer stayed green and reports kept
+    emailing. Fails the unit (visible red in systemd) and emails the report
+    recipients so a missed morning login can never be silent again.
+    """
+    import os
+    import smtplib
+    import sqlite3
+    import sys
+    from email.mime.text import MIMEText
+
+    from dotenv import load_dotenv
+
+    from nifty.paths import DATA_LIVE_OI, ENV_FILE
+
+    label = _ist_today().isoformat()
+    rows = 0
+    checks = [
+        (DATA_LIVE_OI / f"nifty_oi_ticks_{label}.sqlite", "option_ticks"),
+        (DATA_LIVE_OI / f"nifty_slim_{label}.sqlite", "tick"),
+    ]
+    for path, table in checks:
+        if not path.exists():
+            continue
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            rows += int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            conn.close()
+        except sqlite3.Error:
+            pass
+        if rows:
+            break
+    if rows:
+        print(f"[jobs] liveness OK: {rows} ticks recorded today")
+        return
+
+    print(f"[jobs] liveness FAIL: zero ticks on trading day {label}")
+    load_dotenv(ENV_FILE)
+    sender = os.getenv("REPORT_EMAIL_FROM", "").strip()
+    password = os.getenv("REPORT_EMAIL_APP_PASSWORD", "").strip()
+    to = [addr.strip() for addr in os.getenv("REPORT_EMAIL_TO", "").split(",") if addr.strip()]
+    if sender and password and to:
+        base = os.getenv("REPORT_PUBLIC_URL", "").strip().removesuffix("/reports")
+        body = (
+            f"The NIFTY desk has recorded ZERO ticks today ({label}) as of 09:25 IST.\n\n"
+            f"Almost always this means the morning Kite login was missed.\n"
+            f"Fix (30 seconds): open {base or 'https://<your-domain>'}/kite/login "
+            f"and complete the Zerodha 2FA.\n\n"
+            f"Every dark day is tick history lost permanently."
+        )
+        msg = MIMEText(body)
+        msg["Subject"] = f"ALERT: NIFTY desk DARK - no ticks {label}"
+        msg["From"] = sender
+        msg["To"] = ", ".join(to)
+        host = os.getenv("REPORT_SMTP_HOST", "smtp.gmail.com").strip()
+        port = int(os.getenv("REPORT_SMTP_PORT", "465") or "465")
+        with smtplib.SMTP_SSL(host, port) as smtp:
+            smtp.login(sender, password)
+            smtp.send_message(msg)
+        print(f"[jobs] liveness alert emailed to {len(to)} recipient(s)")
+    else:
+        print("[jobs] liveness alert NOT emailed (REPORT_EMAIL_* unset) - failing unit instead")
+    sys.exit(1)  # red unit in systemd either way
+
+
 _COMMANDS = {
     "morning": cmd_morning,
     "premarket": cmd_premarket,
@@ -138,6 +206,7 @@ _COMMANDS = {
     "eod-filing": cmd_eod_filing,
     "session-report": cmd_session_report,
     "email-report": cmd_email_report,
+    "liveness": cmd_liveness,
 }
 
 
