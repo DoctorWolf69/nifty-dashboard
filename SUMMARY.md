@@ -312,17 +312,26 @@ lower) + STT (sell 0.0625%) + exchange + SEBI + GST + stamp, on `lot_size = 65`.
 (single-direction book). Hard pre-checks: not in ORB/expiry/late window, < 1 open, no same-key open,
 ≥ 600 s since this key, entry price > 0.
 
-On entry the position records: `entry_price`, **`stop_price = entry × 0.70` (−30%)**,
-**`target_price = entry × 1.50` (+50%)**, commission fields, confluence score/grade/dimensions.
+On entry the position records: `entry_price`, **`stop_price = entry × 0.70` (−30% catastrophic stop)**,
+`target_price = entry × 1.50` (+50%, stored for reference/journaling only — it does **not** drive an
+exit), commission fields, confluence score/grade/dimensions.
 
-**Managing / exit** (`_update_open_signals`, every snapshot): marks to live option ltp and exits on:
+**Managing / exit** (`_update_open_signals`, every snapshot): marks to live option ltp, re-evaluates OI
+conviction and entry-confirmation factors every tick, and exits dynamically — there is no fixed profit
+target. Priority order: catastrophic stop → thesis invalidation → participant reversal → confirmation
+loss → conviction fade.
 
 | Exit reason | Condition |
 |-------------|-----------|
-| `TARGET_HIT` | current ≥ target (+50%) |
-| `STOP_HIT` | current ≤ stop (−30%) |
-| `OI_CONVICTION_BROKEN` | OI conviction `INVALIDATED` for **2 consecutive** evaluations |
+| `STOP_HIT` | current ≤ stop (−30%, unchanged catastrophic floor) |
+| `OI_CONVICTION_BROKEN` | OI conviction level is `INVALIDATED` |
+| `PARTICIPANT_REVERSAL` | followed writer's 5m OI change ≤ `PLAYBOOK_VELOCITY_UNWIND_PCT` (−2.0%) — the writer is covering |
+| `CONFIRMATION_LOST` | ≥ `CONFIRMATION_LOST_MIN` (2) of the entry-time confirmation factors (thesis / commission / participant) no longer hold |
+| `CONVICTION_FADE` | conviction score has dropped ≥ `CONVICTION_FADE_DROP` (30 pts) below its peak for `CONVICTION_FADE_STREAK` (2) consecutive updates |
 | `EXPIRED_SERIES_PURGE` | stale signal from a rolled-off expiry |
+
+Each close also records `profit_captured_pct` (P&L at exit) and `profit_given_back_pct` (drawdown from
+the position's own max favorable excursion), alongside `exit_conviction` and an optional `exit_note`.
 
 **Open-position OI conviction** (`_evaluate_open_oi_conviction`) → STRONG / WEAK / INVALIDATED:
 - **BUY_CE:** STRONG if PE `PE_ADD_SPOT_UP`; WEAK if `PE_ADD_SPOT_FLAT/QUIET/CE_DOMINANT`;

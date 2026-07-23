@@ -40,6 +40,15 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def _load_jsonl(path: Path, limit: int = 2000) -> List[Dict[str, Any]]:
     if not path.exists():
         return []
@@ -168,6 +177,9 @@ def journal_day_inventory(journal_dir: Path, day: date) -> Dict[str, Any]:
 
 def _selftest() -> None:
     import tempfile
+
+    assert _as_float("3.5") == 3.5 and _as_float(None, 1.0) == 1.0 and _as_float("") == 0.0
+    assert _as_int("7") == 7 and _as_int(None, 5) == 5 and _as_int("3.9") == 3
 
     tmp = Path(tempfile.mkdtemp(prefix="journal-reader-selftest-"))
     day = date(2026, 6, 19)
