@@ -3,6 +3,13 @@
 Persistent JSONL/JSON stores for the NIFTY F&O desk.
 
 All intraday archives land under journal/ with date-stamped filenames.
+
+Updated to match quant-desk-engine v4/ATLAS's evolved nifty_journal_store.py
+(mentor-authored): added per-engine shadow-ledger methods
+(engine_paper_path/append_engine_paper/engine_paper_day_summary) for the
+L1/L2/EV1/EV2 shadow-model-comparison pattern, plus active-trade-thesis and
+opposite-conviction lifecycle journals. All additions — no existing method's
+behavior changed.
 """
 
 from __future__ import annotations
@@ -85,6 +92,97 @@ class NiftyJournalStore:
             self._dated_path("nifty_paper_trades", day),
             event,
             dedupe_key=None,
+        )
+
+    # ---- v4/ATLAS additions: per-engine shadow ledgers + thesis lifecycles ----
+    # Ported faithfully from quant-desk-engine v4's nifty_journal_store.py
+    # (mentor-authored). Purely additive — no existing method's behavior
+    # changed. Support the new engine_paper_book.py (L1/L2/EV1/EV2 shadow
+    # ledgers) and active_thesis.py (already ported this session) journal
+    # restore paths.
+
+    def engine_paper_path(self, engine: str, day: Optional[date] = None) -> Path:
+        """Per-engine paper ledger: journal/nifty_paper_{ENGINE}_{date}.jsonl"""
+        eng = str(engine or "L1").upper().replace(" ", "")
+        return self._dated_path(f"nifty_paper_{eng}", day)
+
+    def append_engine_paper(
+        self,
+        engine: str,
+        event: Dict[str, Any],
+        day: Optional[date] = None,
+    ) -> bool:
+        """Silent/primary engine ledger row (L1 / L2 / EV1 / EV2)."""
+        payload = dict(event)
+        payload.setdefault("engine", str(engine or "").upper())
+        return self.append_jsonl(self.engine_paper_path(engine, day), payload, dedupe_key=None)
+
+    def engine_paper_day_summary(self, day: Optional[date] = None) -> Dict[str, Any]:
+        """Line counts for four engine paper journals."""
+        d = day or date.today()
+        out: Dict[str, Any] = {}
+        for engine in ("L1", "L2", "EV1", "EV2"):
+            path = self.engine_paper_path(engine, d)
+            out[engine] = {"path": str(path), "lines": self._count_jsonl_lines(path)}
+        return out
+
+    def append_active_thesis(self, event: Dict[str, Any], day: Optional[date] = None) -> bool:
+        """Lifecycle: THESIS_CREATED, THESIS_UPDATED, THESIS_ENTERED, THESIS_INVALIDATED, THESIS_EXPIRED."""
+        event_name = str(event.get("event") or "")
+        thesis_id = str(event.get("thesis_id") or "")
+        if event_name == "THESIS_UPDATED":
+            dedupe = f"thesis_upd:{thesis_id}:{ist_now()[:16]}"
+        elif event_name in {"THESIS_CREATED", "THESIS_ENTERED", "THESIS_INVALIDATED", "THESIS_EXPIRED"}:
+            dedupe = f"thesis:{event_name}:{thesis_id}"
+        else:
+            dedupe = None
+        return self.append_jsonl(
+            self._dated_path("active_trade_thesis", day),
+            event,
+            dedupe_key=dedupe,
+        )
+
+    def load_active_thesis_journal(self, day: Optional[date] = None) -> list[Dict[str, Any]]:
+        path = self._dated_path("active_trade_thesis", day)
+        if not path.exists():
+            return []
+        rows: list[Dict[str, Any]] = []
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return rows
+
+    def append_opposite_conviction(self, event: Dict[str, Any], day: Optional[date] = None) -> bool:
+        """Lifecycle: OPPOSITE_STARTED, OPPOSITE_TICK, OPPOSITE_ENDED."""
+        event_name = str(event.get("event") or "")
+        key = str(event.get("legacy_signal_key") or event.get("signal_key") or "")
+        if event_name == "OPPOSITE_TICK":
+            dedupe = f"opp_tick:{key}:{ist_now()[:16]}"
+        elif event_name in {"OPPOSITE_STARTED", "OPPOSITE_ENDED"}:
+            dedupe = f"opp:{event_name}:{key}"
+        else:
+            dedupe = None
+        return self.append_jsonl(
+            self._dated_path("opposite_conviction", day),
+            event,
+            dedupe_key=dedupe,
+        )
+
+    def append_observation_frame(self, frame: Dict[str, Any], day: Optional[date] = None) -> bool:
+        frame_id = str(frame.get("frame_id") or "")
+        dedupe = f"frame:{frame_id}" if frame_id else None
+        return self.append_jsonl(
+            self._dated_path("nifty_signal_candidates", day),
+            frame,
+            dedupe_key=dedupe,
         )
 
     @staticmethod
@@ -218,3 +316,47 @@ class NiftyJournalStore:
             "chosen_instrument": (getattr(state, "morning_context", {}) or {}).get("chosen_instrument"),
             "bias_verdict": getattr(state, "_bias_verdict", None),
         }
+
+
+def _selftest() -> None:
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="journal-selftest-"))
+    store = NiftyJournalStore(journal_dir=tmp)
+    day = date(2026, 7, 23)
+
+    # Existing behavior untouched: a plain alert still appends and dedupes.
+    assert store.append_alert({"contract": "NIFTY23000CE", "direction": "OI ADDING"}, day) is True
+    assert store.append_alert({"contract": "NIFTY23000CE", "direction": "OI ADDING"}, day) is False
+
+    # New: per-engine shadow ledgers write to isolated per-engine files.
+    assert store.append_engine_paper("L1", {"event": "SIGNAL_GENERATED", "id": 1}, day) is True
+    assert store.append_engine_paper("l2", {"event": "SIGNAL_GENERATED", "id": 2}, day) is True
+    l1_path = store.engine_paper_path("L1", day)
+    l2_path = store.engine_paper_path("L2", day)
+    assert l1_path != l2_path
+    assert l1_path.exists() and l2_path.exists()
+    summary = store.engine_paper_day_summary(day)
+    assert set(summary.keys()) == {"L1", "L2", "EV1", "EV2"}
+    assert summary["L1"]["lines"] == 1
+    assert summary["EV1"]["lines"] == 0  # never written -> zero, not an error
+
+    # New: active-thesis lifecycle with event-aware dedupe.
+    assert store.append_active_thesis({"event": "THESIS_CREATED", "thesis_id": "t1"}, day) is True
+    assert store.append_active_thesis({"event": "THESIS_CREATED", "thesis_id": "t1"}, day) is False  # dup create rejected
+    assert store.append_active_thesis({"event": "THESIS_UPDATED", "thesis_id": "t1", "status": "BUILDING"}, day) is True
+    rows = store.load_active_thesis_journal(day)
+    assert len(rows) == 2
+    assert store.load_active_thesis_journal(date(2020, 1, 1)) == []  # no file -> empty, not an error
+
+    # New: opposite-conviction lifecycle.
+    assert store.append_opposite_conviction({"event": "OPPOSITE_STARTED", "signal_key": "k1"}, day) is True
+
+    # New: observation frames share the signal-candidates journal by design.
+    assert store.append_observation_frame({"frame_id": "f1"}, day) is True
+
+    print("[core.journal] selftest OK: engine shadow ledgers, thesis/opposite-conviction lifecycles, backward compat")
+
+
+if __name__ == "__main__":
+    _selftest()
