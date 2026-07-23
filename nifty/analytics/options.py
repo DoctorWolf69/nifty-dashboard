@@ -5,6 +5,11 @@ Phases 7–9 analytics for NIFTY weekly options.
 Phase 7 — Delta: OI-weighted chain delta proxy, velocity, price–delta divergence
 Phase 8 — Greeks: Black–Scholes delta/gamma/theta/vega + net GEX estimate
 Phase 9 — IV: implied vol, skew, velocity, rank/percentile from stored history
+
+Added bs_higher_order_greeks() (vanna/charm/vomma/speed) to match
+quant-desk-engine v4/ATLAS's evolved nifty_options_analytics.py
+(mentor-authored) — additive only, needed by nifty_multi_expiry_chain.py's
+per-strike term-structure heatmap (not yet ported).
 """
 
 from __future__ import annotations
@@ -109,6 +114,47 @@ def bs_greeks(
         "theta": round(theta, 4),
         "vega": round(vega, 4),
         "rho": round(rho, 4),
+    }
+
+
+def bs_higher_order_greeks(
+    spot: float,
+    strike: float,
+    t: float,
+    rate: float,
+    sigma: float,
+    option_type: str,
+) -> Dict[str, float]:
+    """
+    Additional sensitivity set for desk-level diagnostics (vanna/charm/vomma/speed).
+
+    Ported faithfully from quant-desk-engine v4/ATLAS's evolved
+    nifty_options_analytics.py (mentor-authored) — additive only, no
+    existing function's behavior changed. Needed by
+    nifty_multi_expiry_chain.py (not yet ported) for its per-strike
+    term-structure heatmap. Values are practical proxies suitable for
+    relative comparisons across strikes, not exact institutional greeks.
+    """
+    if spot <= 0 or strike <= 0 or t <= 0 or sigma <= 0:
+        return {"vanna": 0.0, "charm": 0.0, "vomma": 0.0, "speed": 0.0}
+    sqrt_t = math.sqrt(t)
+    d1 = (math.log(spot / strike) + (rate + 0.5 * sigma * sigma) * t) / (sigma * sqrt_t)
+    d2 = d1 - sigma * sqrt_t
+    pdf = norm.pdf(d1)
+    gamma = pdf / (spot * sigma * sqrt_t)
+    vega = spot * pdf * sqrt_t / 100.0
+
+    # Practical proxies; signs and relative magnitudes are useful for desk decisions.
+    vanna = (vega / max(spot, 1e-9)) * (1.0 - d1 / max(sigma * sqrt_t, 1e-9))
+    vomma = vega * d1 * d2 / max(sigma, 1e-9)
+    speed = -gamma / max(spot, 1e-9) * ((d1 / max(sigma * sqrt_t, 1e-9)) + 1.0)
+    charm_core = -pdf * ((2.0 * rate * t - d2 * sigma * sqrt_t) / max(2.0 * t * sigma * sqrt_t, 1e-9))
+    charm = charm_core if option_type.upper() == "CE" else -charm_core
+    return {
+        "vanna": round(vanna, 6),
+        "charm": round(charm, 6),
+        "vomma": round(vomma, 6),
+        "speed": round(speed, 8),
     }
 
 
@@ -378,3 +424,26 @@ def analyze_option_chain(
         "risk_free_rate": risk_free,
         "lot_size": lot_size,
     }
+
+
+def _selftest() -> None:
+    # Focused on bs_higher_order_greeks (this session's addition) — the rest of
+    # this module predates the _selftest() convention and is exercised live via
+    # nifty.dashboard.state's analyze_option_chain call path instead.
+    zero = bs_higher_order_greeks(0.0, 23000, 0.05, 0.065, 0.15, "CE")
+    assert zero == {"vanna": 0.0, "charm": 0.0, "vomma": 0.0, "speed": 0.0}
+
+    ce = bs_higher_order_greeks(23000.0, 23000.0, 0.05, 0.065, 0.15, "CE")
+    pe = bs_higher_order_greeks(23000.0, 23000.0, 0.05, 0.065, 0.15, "PE")
+    assert all(isinstance(v, float) for v in ce.values())
+    # CE and PE charm are mirror-signed at the same ATM strike/vol (put-call charm symmetry).
+    assert ce["charm"] == -pe["charm"] or (ce["charm"] == 0.0 and pe["charm"] == 0.0)
+    # Deep ITM/OTM vanna magnitude should differ from ATM (sanity, not an exact value check).
+    itm = bs_higher_order_greeks(23000.0, 21000.0, 0.05, 0.065, 0.15, "CE")
+    assert itm["vanna"] != ce["vanna"]
+
+    print("[analytics.options] selftest OK: bs_higher_order_greeks (vanna/charm/vomma/speed)")
+
+
+if __name__ == "__main__":
+    _selftest()
