@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""NIFTY index futures layer — EOD participant positioning + live fut OI vs options."""
+"""NIFTY index futures layer — EOD participant positioning + live fut OI vs options.
+
+evaluate_fut_opt_alignment() updated 2026-07-24 to match quant-desk-engine
+v4/ATLAS's evolved nifty_futures_context.py (mentor-authored) — see that
+function's own docstring for the full rationale. This was a user-approved,
+deliberate LIVE TRADE BEHAVIOR change: the FUTURES_MACRO_CONFLICT hard
+block is gone, replaced by a non-blocking descriptive relationship read.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +24,6 @@ FUTURES_OI_UNWIND_PCT = -0.35
 FUTURES_PRICE_FLAT_PTS = 6.0
 FII_NET_SHORT_EXTREME = 150_000
 FII_NET_LONG_EXTREME = 50_000
-ENABLE_FUTURES_ALIGNMENT_BLOCK = True
 
 
 def _as_int(value: Any, default: int = 0) -> int:
@@ -216,57 +222,102 @@ def _layer_read(front: Dict[str, Any], eod: Dict[str, Any]) -> str:
     return eod.get("read") or "Track front-month fut OI vs option writer alerts"
 
 
+def _relationship_to_inherited(macro: str, live: str) -> str:
+    if macro == "BEARISH":
+        if live in {"SHORT_BUILD", "LONG_UNWIND"}:
+            return "CONFIRMING"
+        if live in {"LONG_BUILD", "SHORT_COVER"}:
+            return "UNWINDING"
+        return "MIXED"
+    if macro == "BULLISH":
+        if live in {"LONG_BUILD", "SHORT_COVER"}:
+            return "CONTINUING"
+        if live in {"SHORT_BUILD", "LONG_UNWIND"}:
+            return "UNWINDING"
+        return "MIXED"
+    if live in {"LONG_BUILD", "SHORT_COVER", "SHORT_BUILD", "LONG_UNWIND"}:
+        return "DEVELOPING"
+    return "NEUTRAL"
+
+
 def evaluate_fut_opt_alignment(
     decision: str,
     *,
     eod_context: Dict[str, Any],
     front_behavior: str,
 ) -> Dict[str, Any]:
-    """Check option signal vs EOD + live index futures positioning."""
+    """Describe live-vs-inherited futures relationship for this candidate.
+
+    UPDATED to match quant-desk-engine v4/ATLAS's evolved
+    nifty_futures_context.py (mentor-authored, user-approved 2026-07-24):
+    the mentor dropped the hard FUTURES_MACRO_CONFLICT trade-block in favor
+    of a purely descriptive relationship read (CONFIRMING/UNWINDING/
+    CONTINUING/MIXED/DEVELOPING/NEUTRAL) that never blocks a candidate.
+    `blocker` is now always None — state.py's existing
+    `if fut_align.get("blocker")` check becomes a permanent no-op for this
+    source, matching the mentor's current intent, without needing to touch
+    state.py itself. This is a deliberate, user-approved LIVE BEHAVIOR
+    CHANGE, not a purely additive one: strictly more candidates can now
+    reach paper_eligible=True in the extreme-FII-positioning scenarios
+    that used to hard-block.
+    """
     fii_net = _as_int(eod_context.get("fii_index_net"))
     macro = str(eod_context.get("macro_bias") or "NEUTRAL")
     live = str(front_behavior or "FLAT")
-    alignment = "NEUTRAL"
-    blocker: Optional[str] = None
-    detail = ""
-
-    if decision == "BUY_CE":
-        if macro == "BEARISH" and fii_net <= -FII_NET_SHORT_EXTREME:
-            if live in {"SHORT_BUILD", "LONG_UNWIND", "OI_ADD_MIXED"}:
-                alignment = "CONFLICT"
-                blocker = "FUTURES_MACRO_CONFLICT"
-                detail = "BUY_CE vs FII short index fut + live bearish fut OI"
-            else:
-                alignment = "CAUTION"
-                detail = "BUY_CE vs EOD FII short futures — options local only"
-        elif live in {"LONG_BUILD", "SHORT_COVER"}:
-            alignment = "ALIGNED"
-            detail = "BUY_CE aligned with live fut long build / cover"
-        elif macro == "BULLISH":
-            alignment = "ALIGNED"
-            detail = "BUY_CE aligned with EOD bullish fut positioning"
-    elif decision == "BUY_PE":
-        if macro == "BULLISH" and fii_net >= FII_NET_LONG_EXTREME:
-            if live in {"LONG_BUILD", "SHORT_COVER"}:
-                alignment = "CONFLICT"
-                blocker = "FUTURES_MACRO_CONFLICT"
-                detail = "BUY_PE vs FII long index fut + live bullish fut OI"
-            else:
-                alignment = "CAUTION"
-                detail = "BUY_PE vs EOD FII long futures"
-        elif live in {"SHORT_BUILD", "LONG_UNWIND"}:
-            alignment = "ALIGNED"
-            detail = "BUY_PE aligned with live fut short build / long unwind"
-        elif macro == "BEARISH":
-            alignment = "ALIGNED"
-            detail = "BUY_PE aligned with EOD bearish FII fut book"
+    relationship = _relationship_to_inherited(macro, live)
+    detail = (
+        f"Inherited {macro} ({fii_net:+,}) vs live {live}: {relationship}"
+        if macro != "NEUTRAL"
+        else f"Inherited mixed ({fii_net:+,}) vs live {live}: {relationship}"
+    )
 
     return {
-        "alignment": alignment,
-        "blocker": blocker if ENABLE_FUTURES_ALIGNMENT_BLOCK else None,
+        "alignment": relationship,
+        "relationship": relationship,
+        "blocker": None,
         "detail": detail,
+        "decision": decision,
         "fii_index_net": fii_net,
         "macro_bias": macro,
         "live_fut_behavior": live,
     }
+
+
+def _selftest() -> None:
+    # The one behavior change this update makes: blocker is now always None,
+    # regardless of how extreme the FII positioning / live futures conflict is.
+    extreme_bearish_conflict = evaluate_fut_opt_alignment(
+        "BUY_CE",
+        eod_context={"fii_index_net": -200_000, "macro_bias": "BEARISH"},
+        front_behavior="SHORT_BUILD",
+    )
+    assert extreme_bearish_conflict["blocker"] is None
+    assert extreme_bearish_conflict["relationship"] == "CONFIRMING"
+
+    extreme_bullish_conflict = evaluate_fut_opt_alignment(
+        "BUY_PE",
+        eod_context={"fii_index_net": 100_000, "macro_bias": "BULLISH"},
+        front_behavior="LONG_BUILD",
+    )
+    assert extreme_bullish_conflict["blocker"] is None
+    assert extreme_bullish_conflict["relationship"] == "CONTINUING"
+
+    # Relationship classification sanity per _relationship_to_inherited.
+    assert _relationship_to_inherited("BEARISH", "SHORT_BUILD") == "CONFIRMING"
+    assert _relationship_to_inherited("BEARISH", "LONG_BUILD") == "UNWINDING"
+    assert _relationship_to_inherited("BEARISH", "FLAT") == "MIXED"
+    assert _relationship_to_inherited("BULLISH", "LONG_BUILD") == "CONTINUING"
+    assert _relationship_to_inherited("BULLISH", "SHORT_BUILD") == "UNWINDING"
+    assert _relationship_to_inherited("NEUTRAL", "LONG_BUILD") == "DEVELOPING"
+    assert _relationship_to_inherited("NEUTRAL", "FLAT") == "NEUTRAL"
+
+    neutral = evaluate_fut_opt_alignment("BUY_CE", eod_context={}, front_behavior="FLAT")
+    assert neutral["blocker"] is None
+    assert neutral["relationship"] == "NEUTRAL"
+
+    print("[analytics.futures] selftest OK: evaluate_fut_opt_alignment never blocks, relationship classification")
+
+
+if __name__ == "__main__":
+    _selftest()
 

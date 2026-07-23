@@ -29,6 +29,12 @@ import sys
 import time
 from pathlib import Path
 
+# Windows consoles default to cp1252, which can't encode e.g. "≤" that shows
+# up in diffed payload strings (ported analytics modules use Unicode display
+# text). Make diff printing resilient instead of crashing mid-report.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 

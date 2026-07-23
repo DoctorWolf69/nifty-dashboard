@@ -10,14 +10,31 @@ Computes from daily OHLC (Kite → yfinance ^NSEI → morning desk fallback):
   - Period highs/lows (52W, 6M, month, week) + range position
   - ATR(14)
   - OI ceiling/floor/max pain with OI in lakhs (from oi_map)
+  - Bollinger (20, 2σ) and Keltner (EMA20 ± 2×ATR14) on daily series
+  - Session VWAP proxy (tick TWAP from 09:15 IST)
+
+UPDATED 2026-07-24 to add Bollinger/Keltner/session-TWAP from
+quant-desk-engine v4/ATLAS's evolved nifty_key_levels.py (mentor-authored),
+per user-approved direction. These are additive new payload fields only —
+deliberately NOT added to flatten_levels_for_alerts's input dict, so they
+cannot become new "key area" zones for OI alerts (the user's flagged
+display-only choice). build_key_levels() gained one new optional
+`spot_history` parameter (default None); existing callers that don't pass
+it get identical output for every existing field, plus a new
+"session_twap" field that gracefully reads "No session ticks yet" instead
+of computing a real TWAP.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+import math
+from datetime import date, datetime, time, timedelta
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 NIFTY_SPOT_TOKEN = 256265
+IST = ZoneInfo("Asia/Kolkata")
+CASH_SESSION_OPEN = time(9, 15)
 
 from nifty.kite.spot import prior_session_candle
 
@@ -301,6 +318,141 @@ def _level_row(name: str, value: Optional[float], spot: float, note: str = "") -
     }
 
 
+def ist_session_open_dt(trade_date: Optional[date] = None) -> datetime:
+    """NSE cash continuous open (09:15 IST)."""
+    d = trade_date or date.today()
+    return datetime.combine(d, CASH_SESSION_OPEN, tzinfo=IST)
+
+
+def compute_session_twap(
+    spot_history: Sequence[Tuple[float, float]],
+    *,
+    trade_date: Optional[date] = None,
+    session_open: Optional[datetime] = None,
+    as_of_epoch: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Session VWAP proxy for NIFTY spot index.
+
+    NSE index cash has no meaningful volume on Kite — use time-weighted average
+    of live ticks from 09:15 IST (TWAP). Futures-volume VWAP can be added later.
+    """
+    session_open = session_open or ist_session_open_dt(trade_date)
+    start_epoch = session_open.timestamp()
+    points = sorted(
+        ((float(ts), float(px)) for ts, px in spot_history if float(px) > 0 and float(ts) >= start_epoch),
+        key=lambda item: item[0],
+    )
+    if not points:
+        return {
+            "session_vwap": None,
+            "method": "tick_twap",
+            "tick_count": 0,
+            "session_open": session_open.strftime("%Y-%m-%d %H:%M:%S"),
+            "note": "No session ticks yet — starts at 09:15 IST",
+        }
+
+    if len(points) == 1:
+        vwap = points[0][1]
+        return {
+            "session_vwap": _round(vwap),
+            "method": "tick_twap",
+            "tick_count": 1,
+            "session_open": session_open.strftime("%Y-%m-%d %H:%M:%S"),
+            "first_tick_at": datetime.fromtimestamp(points[0][0], tz=IST).strftime("%H:%M:%S"),
+            "note": "Single tick — TWAP equals last price",
+        }
+
+    weighted = 0.0
+    duration = 0.0
+    for idx in range(len(points) - 1):
+        t0, p0 = points[idx]
+        t1, _ = points[idx + 1]
+        dt = max(0.0, t1 - t0)
+        if dt <= 0:
+            continue
+        weighted += p0 * dt
+        duration += dt
+    # Hold last price until as_of for open interval
+    t_last, p_last = points[-1]
+    now_epoch = as_of_epoch if as_of_epoch is not None else datetime.now(tz=IST).timestamp()
+    tail = max(0.0, now_epoch - t_last)
+    if tail > 0:
+        weighted += p_last * tail
+        duration += tail
+    vwap = weighted / duration if duration > 0 else p_last
+    return {
+        "session_vwap": _round(vwap),
+        "method": "tick_twap",
+        "tick_count": len(points),
+        "session_open": session_open.strftime("%Y-%m-%d %H:%M:%S"),
+        "first_tick_at": datetime.fromtimestamp(points[0][0], tz=IST).strftime("%H:%M:%S"),
+        "last_tick_at": datetime.fromtimestamp(t_last, tz=IST).strftime("%H:%M:%S"),
+        "note": "Tick TWAP from 09:15 IST (index cash volume unavailable)",
+    }
+
+
+def bollinger_bands(
+    closes: List[float],
+    spot: float,
+    *,
+    period: int = 20,
+    std_mult: float = 2.0,
+) -> Dict[str, Any]:
+    if len(closes) < period:
+        return {}
+    window = closes[-period:]
+    middle = sum(window) / period
+    variance = sum((x - middle) ** 2 for x in window) / period
+    std = math.sqrt(variance) if variance > 0 else 0.0
+    upper = middle + std_mult * std
+    lower = middle - std_mult * std
+    return {
+        "period": period,
+        "std_mult": std_mult,
+        "middle": _round(middle),
+        "upper": _round(upper),
+        "lower": _round(lower),
+        "bandwidth_pts": _round(upper - lower),
+        "rows": [
+            _level_row("BB Upper", _round(upper), spot, f"+{std_mult}σ"),
+            _level_row("BB Middle", _round(middle), spot, f"SMA{period}"),
+            _level_row("BB Lower", _round(lower), spot, f"-{std_mult}σ"),
+        ],
+    }
+
+
+def keltner_channel(
+    candles: List[Dict[str, float]],
+    closes: List[float],
+    spot: float,
+    *,
+    ema_period: int = 20,
+    atr_period: int = 14,
+    atr_mult: float = 2.0,
+) -> Dict[str, Any]:
+    ema_mid = ema_series(closes, ema_period)
+    atr = atr_last(candles, atr_period)
+    if ema_mid is None or atr is None:
+        return {}
+    upper = ema_mid + atr_mult * atr
+    lower = ema_mid - atr_mult * atr
+    return {
+        "ema_period": ema_period,
+        "atr_period": atr_period,
+        "atr_mult": atr_mult,
+        "middle": _round(ema_mid),
+        "upper": _round(upper),
+        "lower": _round(lower),
+        "bandwidth_pts": _round(upper - lower),
+        "rows": [
+            _level_row("KC Upper", _round(upper), spot, f"EMA{ema_period}+{atr_mult}×ATR"),
+            _level_row("KC Middle", _round(ema_mid), spot, f"EMA{ema_period}"),
+            _level_row("KC Lower", _round(lower), spot, f"EMA{ema_period}-{atr_mult}×ATR"),
+        ],
+    }
+
+
 def flatten_levels_for_alerts(key_levels: Dict[str, Any]) -> List[Tuple[str, float]]:
     """Return (label, price) pairs for key-area proximity checks."""
     out: List[Tuple[str, float]] = []
@@ -348,6 +500,7 @@ def build_key_levels(
     morning_nifty: Optional[Dict[str, Any]] = None,
     oi_map: Optional[Dict[str, Any]] = None,
     trade_date: Optional[date] = None,
+    spot_history: Optional[Sequence[Tuple[float, float]]] = None,
 ) -> Dict[str, Any]:
     candles, source = fetch_daily_candles(morning_nifty=morning_nifty)
     errors: List[str] = []
@@ -377,6 +530,9 @@ def build_key_levels(
 
     ma_panel = moving_average_panel(closes, spot_price) if closes else {}
     atr14 = atr_last(candles, 14) if candles else None
+    bollinger = bollinger_bands(closes, spot_price) if closes else {}
+    keltner = keltner_channel(candles, closes, spot_price) if candles and closes else {}
+    session_twap = compute_session_twap(spot_history or (), trade_date=trade_date)
 
     oi_section: Dict[str, Any] = {}
     if oi_map:
@@ -438,7 +594,13 @@ def build_key_levels(
         "moving_averages": ma_panel,
         "period_extremes": extremes,
         "atr_14d": atr14,
+        "bollinger": bollinger,
+        "keltner": keltner,
+        "session_twap": session_twap,
         "oi": oi_section,
+        # bollinger/keltner/session_twap deliberately excluded from this dict:
+        # user-approved choice to keep the 3 new indicators display-only,
+        # never new "key area" zones for OI alert gating.
         "flat_levels": [{"label": label, "value": value} for label, value in flatten_levels_for_alerts(
             {
                 "pivots": pivots,
@@ -607,3 +769,61 @@ def _as_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _selftest() -> None:
+    # bollinger_bands: needs >= period closes, else empty (never raises).
+    assert bollinger_bands([100.0] * 10, 100.0, period=20) == {}
+    closes = [23000.0 + (i % 5) * 10 for i in range(25)]
+    bb = bollinger_bands(closes, 23020.0)
+    assert bb["upper"] > bb["middle"] > bb["lower"]
+    assert len(bb["rows"]) == 3
+
+    # keltner_channel: needs enough candles for ATR too.
+    candles = [{"high": 23000.0 + i, "low": 22980.0 + i, "close": 22990.0 + i} for i in range(20)]
+    assert keltner_channel([], closes, 23020.0) == {}
+    kc = keltner_channel(candles, closes, 23020.0)
+    assert kc["upper"] > kc["middle"] > kc["lower"]
+
+    # compute_session_twap: no ticks -> graceful "no ticks yet", never raises.
+    empty_twap = compute_session_twap([], trade_date=date(2026, 7, 21))
+    assert empty_twap["session_vwap"] is None
+    assert empty_twap["tick_count"] == 0
+
+    # Single tick -> TWAP equals that price.
+    open_dt = ist_session_open_dt(date(2026, 7, 21))
+    single = compute_session_twap([(open_dt.timestamp() + 60, 23000.0)], trade_date=date(2026, 7, 21))
+    assert single["session_vwap"] == 23000.0
+    assert single["tick_count"] == 1
+
+    # Multiple ticks -> time-weighted average, held to as_of_epoch for the open interval.
+    t0 = open_dt.timestamp()
+    history = [(t0 + 60, 23000.0), (t0 + 120, 23100.0)]
+    twap = compute_session_twap(history, trade_date=date(2026, 7, 21), as_of_epoch=t0 + 180)
+    assert twap["tick_count"] == 2
+    assert twap["session_vwap"] is not None
+
+    # Ticks before session open are excluded.
+    pre_open = compute_session_twap([(t0 - 3600, 22000.0)], trade_date=date(2026, 7, 21))
+    assert pre_open["tick_count"] == 0
+
+    # build_key_levels: new fields present, and NOT leaked into flat_levels
+    # (the user-approved display-only choice) — flat_levels only contains
+    # labels from pivots/camarilla/fibonacci/moving_averages/period_extremes/oi.
+    kl = build_key_levels(spot=23020.0, morning_nifty={"last": 23020.0}, trade_date=date(2026, 7, 21))
+    assert "bollinger" in kl
+    assert "keltner" in kl
+    assert "session_twap" in kl
+    flat_labels = " ".join(row["label"] for row in kl["flat_levels"])
+    assert "BB" not in flat_labels
+    assert "KC" not in flat_labels
+
+    # Existing callers that don't pass spot_history still get a graceful
+    # session_twap (no ticks yet), not a crash — backward compatible.
+    assert kl["session_twap"]["tick_count"] == 0
+
+    print("[kite.key_levels] selftest OK: bollinger/keltner/session-twap, kept out of alert-gating flat_levels")
+
+
+if __name__ == "__main__":
+    _selftest()
