@@ -107,7 +107,7 @@ PLAYBOOK_WATCH_STRIKES = (23100, 23200)
 # Bump on any decision-logic change. Together with engine_config_hash() this
 # keys every derived cache (replay timelines), so a threshold edit can never
 # silently serve decisions computed under the old rules.
-ENGINE_VERSION = "2.1.0"
+ENGINE_VERSION = "2.2.0"
 
 
 def engine_config_hash() -> str:
