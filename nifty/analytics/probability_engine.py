@@ -23,6 +23,18 @@ designed no-op, the same degradation pattern oi_conviction.py already uses
 for market_profile/liquidity_engine/volatility_engine. That one function is
 inlined verbatim below rather than reviving the whole normalization module.
 
+Added this session (additive only, faithful to the same v4 source):
+CALIBRATION_PATH/SHADOW_CALIBRATION/load_shadow_calibration_doc/
+reload_shadow_calibration/apply_shadow_calibration - the isotonic
+probability-calibration cache that nifty.analytics.ev_shadow_trainer (also
+ported this session) writes to config/ev_calibration_shadow.json.
+apply_shadow_calibration is NOT called anywhere in this module (v4's own
+evaluate_trade_opportunity-equivalent calls it at one line; wiring that in
+here would be a live scoring-behavior change requiring the same sign-off
+as the earlier confluence.py/futures.py updates, so it's deliberately left
+unwired - a pure pass-through until both that wiring AND a trained
+calibration file exist).
+
 Not yet wired into the live pipeline.
 Self-check: python -m nifty.analytics.probability_engine
 """
@@ -34,7 +46,7 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from nifty.paths import DATA_DIR
+from nifty.paths import DATA_DIR, PROJECT_ROOT
 
 # ---------------------------------------------------------------------------
 # Conflict taxonomy (mentor's Conflict Classification architecture)
@@ -112,7 +124,9 @@ MIN_DIRECTION_PROB_PCT = 58.0
 USE_EV_MODEL_FOR_PAPER = False  # shadow until calibrated on journal history
 
 WEIGHTS_PATH = DATA_DIR / "evidence_weights.json"
+CALIBRATION_PATH = PROJECT_ROOT / "config" / "ev_calibration_shadow.json"
 EVIDENCE_LOG_ODDS: Dict[str, float] = dict(DEFAULT_EVIDENCE_LOG_ODDS)
+SHADOW_CALIBRATION: Dict[str, Any] = {}
 
 
 def load_learned_weights_doc(path: Path = WEIGHTS_PATH) -> Dict[str, Any]:
@@ -145,6 +159,46 @@ def refresh_evidence_weights(market_state: Optional[str] = None) -> Dict[str, fl
     global EVIDENCE_LOG_ODDS
     EVIDENCE_LOG_ODDS = get_evidence_log_odds(market_state)
     return EVIDENCE_LOG_ODDS
+
+
+def load_shadow_calibration_doc(path: Path = CALIBRATION_PATH) -> Dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def reload_shadow_calibration(path: Path = CALIBRATION_PATH) -> Dict[str, Any]:
+    """Reload isotonic calibration anchors for shadow probability/EV."""
+    global SHADOW_CALIBRATION
+    SHADOW_CALIBRATION = load_shadow_calibration_doc(path)
+    return SHADOW_CALIBRATION
+
+
+def apply_shadow_calibration(raw_probability_pct: float) -> float:
+    """Map raw thesis probability (0-100) to calibrated probability (0-100).
+
+    Not called anywhere in this module yet - evaluate_trade_opportunity's
+    own thesis-probability computation is unchanged from before this port.
+    Wiring this in would be a live scoring-behavior change requiring the
+    same explicit sign-off as the earlier confluence.py/futures.py updates;
+    additionally SHADOW_CALIBRATION stays {} (this function is a pass-through)
+    until ev_shadow_trainer.train_ev_shadow_calibration is actually run, since
+    no config/ev_calibration_shadow.json exists yet.
+    """
+    anchors = (SHADOW_CALIBRATION.get("fit") or {}).get("anchors") or []
+    if not anchors:
+        return raw_probability_pct
+    from nifty.analytics.ev_shadow_trainer import apply_isotonic_calibration
+
+    raw = _clamp(_as_float(raw_probability_pct) / 100.0, 0.01, 0.99)
+    calibrated = apply_isotonic_calibration(raw, anchors)
+    return round(calibrated * 100.0, 1)
+
+
+reload_shadow_calibration()
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -669,7 +723,17 @@ def _selftest() -> None:
     assert "trade_eligible" in result and isinstance(result["trade_eligible"], bool)
     assert result["opportunity"]["score"] >= 0  # velocity bonus is 0 (no profile) but score still computed
 
-    print("[analytics.probability_engine] selftest OK: no-op velocity factors, conflicts, market state, five-engine eval")
+    # No config/ev_calibration_shadow.json trained yet -> pass-through, never raises.
+    assert load_shadow_calibration_doc(Path("/nonexistent/path.json")) == {}
+    global SHADOW_CALIBRATION
+    original_calibration = SHADOW_CALIBRATION
+    try:
+        SHADOW_CALIBRATION = {}
+        assert apply_shadow_calibration(62.5) == 62.5
+    finally:
+        SHADOW_CALIBRATION = original_calibration
+
+    print("[analytics.probability_engine] selftest OK: no-op velocity factors, conflicts, market state, five-engine eval, shadow calibration pass-through")
 
 
 if __name__ == "__main__":
