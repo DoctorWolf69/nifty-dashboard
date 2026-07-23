@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+import json
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -13,7 +14,7 @@ NSE_NIFTY_SYMBOL = "NSE:NIFTY 50"
 GAP_THRESHOLD = 30.0
 MILD_GAP_THRESHOLD = 10.0
 
-from nifty.paths import PROJECT_ROOT as BASE_DIR
+from nifty.paths import JOURNAL_DIR, PROJECT_ROOT as BASE_DIR
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -23,6 +24,64 @@ def _as_float(value: Any) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _previous_trading_day(start: Optional[date] = None) -> date:
+    day = start or date.today()
+    day -= timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
+def load_official_prev_close(trade_date: Optional[date] = None) -> Optional[float]:
+    """Prior session official NSE close — EOD filing, daily levels, then key_levels OHLC.
+
+    Ported from quant-desk-engine v4/ATLAS's desk_kite_spot.py. _previous_trading_day
+    is duplicated here rather than imported from nifty.eod.filing/nifty.sources.nse_eod
+    (which already have equivalent copies) because nifty.eod.filing imports from
+    nifty.morning.phases, which imports from this module — an nifty.kite.spot ->
+    nifty.eod.filing import would be circular.
+    """
+    day = trade_date or date.today()
+    prev = _previous_trading_day(day)
+    label = prev.isoformat()
+
+    filing_path = JOURNAL_DIR / f"nse_eod_filing_{label}.json"
+    if filing_path.exists():
+        try:
+            filing = json.loads(filing_path.read_text(encoding="utf-8"))
+            close = _as_float((filing.get("nifty_official") or {}).get("close"))
+            if close is not None:
+                return close
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+    # Prior session daily levels (spot ~= session close when EOD filing missing)
+    daily_path = JOURNAL_DIR / f"daily_levels_{label}.json"
+    if daily_path.exists():
+        try:
+            daily = json.loads(daily_path.read_text(encoding="utf-8"))
+            session = daily.get("session_close") or {}
+            close = _as_float(session.get("spot") or session.get("close"))
+            if close is not None:
+                return close
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+    # Today's key_levels.reference_ohlc is built from the prior session
+    levels_path = JOURNAL_DIR / f"key_levels_{day.isoformat()}.json"
+    if levels_path.exists():
+        try:
+            levels = json.loads(levels_path.read_text(encoding="utf-8"))
+            ref = levels.get("reference_ohlc") or {}
+            close = _as_float(ref.get("close"))
+            if close is not None:
+                return close
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+
+    return None
 
 
 def cash_session_open(now: Optional[datetime] = None) -> bool:
@@ -213,3 +272,47 @@ def prior_session_candle(
         return row, str(row.get("date", ""))[:10]
     row = candles[-1]
     return row, str(row.get("date", ""))[:10]
+
+
+def _selftest() -> None:
+    import tempfile
+
+    global JOURNAL_DIR
+    tmp = Path(tempfile.mkdtemp(prefix="kite-spot-selftest-"))
+    original = JOURNAL_DIR
+    try:
+        JOURNAL_DIR = tmp
+        day = date(2026, 7, 21)  # Tuesday
+        prev = _previous_trading_day(day)
+        assert prev == date(2026, 7, 20)  # Monday
+        monday = _previous_trading_day(date(2026, 7, 20))
+        assert monday.weekday() < 5 and monday == date(2026, 7, 17)  # Friday, skips weekend
+
+        # No journal files at all -> None, never raises.
+        assert load_official_prev_close(day) is None
+
+        # Tier 3: key_levels reference_ohlc for `day` itself.
+        (tmp / f"key_levels_{day.isoformat()}.json").write_text(
+            json.dumps({"reference_ohlc": {"close": 25100.5}}), encoding="utf-8"
+        )
+        assert load_official_prev_close(day) == 25100.5
+
+        # Tier 2 (daily_levels for the prior session) takes priority over tier 3.
+        (tmp / "daily_levels_2026-07-20.json").write_text(
+            json.dumps({"session_close": {"spot": 25080.25}}), encoding="utf-8"
+        )
+        assert load_official_prev_close(day) == 25080.25
+
+        # Tier 1 (nse_eod_filing for the prior session) takes priority over tier 2.
+        (tmp / "nse_eod_filing_2026-07-20.json").write_text(
+            json.dumps({"nifty_official": {"close": 25075.0}}), encoding="utf-8"
+        )
+        assert load_official_prev_close(day) == 25075.0
+    finally:
+        JOURNAL_DIR = original
+
+    print("[kite.spot] selftest OK: previous-trading-day, official prev-close 3-tier fallback")
+
+
+if __name__ == "__main__":
+    _selftest()
